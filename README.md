@@ -350,7 +350,7 @@ applications should favor PBKDF2 or Scrypt and AEAD ciphers.
 
 Additionally, the package is designed exclusively for store and forward
 scenarios, as most algorithms will not be perfectly safe for interactive use.
-ECDSA signature generation uses the generic ECC implementation from cryptonite
+ECDSA signature generation uses the generic ECC implementation from crypton
 and could leak the private key under timing attack.  A padding oracle on
 CBC-encrypted ciphertext allows to recover the plaintext.
 
@@ -358,14 +358,14 @@ CBC-encrypted ciphertext allows to recover the plaintext.
 
 Main dependencies are:
 
-* [cryptonite](https://hackage.haskell.org/package/cryptonite) implementation of
+* [crypton](https://hackage.haskell.org/package/crypton) implementation of
   public-key systems, symmetric ciphers, KDFs, MAC, and one-way hash functions
 * [asn1-types](https://hackage.haskell.org/package/asn1-types) and
   [asn1-encoding](https://hackage.haskell.org/package/asn1-encoding) to encode
   and decode ASN.1 content
 * [pem](https://hackage.haskell.org/package/pem) to read and write PEM files
-* [x509](https://hackage.haskell.org/package/x509) contains the certificate and
-  private-key data types
+* [crypton-x509](https://hackage.haskell.org/package/crypton-x509) contains
+  the certificate and private-key data types
 
 Internally the ASN.1 parser used is a local implementation extending the code of
 [asn1-parse](https://hackage.haskell.org/package/asn1-parse).  This extension is

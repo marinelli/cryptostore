@@ -19,7 +19,7 @@ import Data.ASN1.Error
 -- | Error type in cryptostore.
 data StoreError =
       CryptoError CryptoError
-      -- ^ Wraps a cryptonite error
+      -- ^ Wraps a crypton error
     | RSAError RSA.Error
       -- ^ Wraps an RSA crypto error
     | DecodingError ASN1Error
