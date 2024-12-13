@@ -19,11 +19,6 @@ source-repository head
   type:     git
   location: https://github.com/ocheron/cryptostore
 
-flag use_crypton
-  description: Use crypton instead of cryptonite
-  manual: True
-  default: False
-
 library
   hs-source-dirs:      src
   exposed-modules:     Crypto.Store.CMS
