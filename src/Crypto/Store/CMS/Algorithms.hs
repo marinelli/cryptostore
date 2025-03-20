@@ -1043,12 +1043,12 @@ aceParameterASN1S (Params_AUTH_ENC_128 p) = asn1s p
 aceParameterASN1S (Params_AUTH_ENC_256 p) = asn1s p
 aceParameterASN1S (Params_CHACHA20_POLY1305 iv) = gOctetString (B.convert iv)
 aceParameterASN1S (ParamsCCM _ iv m _) =
-    asn1Container Sequence (nonce . icvlen)
+    asn1Container Sequence (if m == CCM_M12 then nonce else nonce . icvlen)
   where
     nonce  = gOctetString (B.convert iv)
     icvlen = gIntVal (fromIntegral $ getM m)
 aceParameterASN1S (ParamsGCM _ iv len) =
-    asn1Container Sequence (nonce . icvlen)
+    asn1Container Sequence (if len == 12 then nonce else nonce . icvlen)
   where
     nonce  = gOctetString (B.convert iv)
     icvlen = gIntVal (fromIntegral len)
@@ -1988,7 +1988,7 @@ fromL _ = Nothing
 
 parseM :: Monoid e => ParseASN1 e CCM_M
 parseM = do
-    IntVal l <- getNext
+    l <- fromMaybe 12 <$> getNextMaybe intOrNothing
     case l of
         4  -> return CCM_M4
         6  -> return CCM_M6
