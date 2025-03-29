@@ -13,6 +13,10 @@
   that discarded error details is available with functions renamed
   `pemToKeyAccum`, `pemToPubKeyAccum` and `pemToContentInfoAccum`.
 
+* Functions `generateAuthEnc128Params` and `generateAuthEnc256Params` are
+  replaced with `authEnc128Params` and `authEnc256Params`.  The new API expects
+  a `ContentEncryptionParams` argument instead of `ContentEncryptionAlg`.
+
 * Fixed encoding of some HMAC and PRF parameters
 
 ## 0.3.1.0 - 2024-05-05

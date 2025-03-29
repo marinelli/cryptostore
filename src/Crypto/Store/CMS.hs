@@ -123,8 +123,8 @@ module Crypto.Store.CMS
     , AuthContentEncryptionAlg(..)
     , AuthContentEncryptionParams
     , AuthEnvelopedData(..)
-    , generateAuthEnc128Params
-    , generateAuthEnc256Params
+    , authEnc128Params
+    , authEnc256Params
     , generateChaChaPoly1305Params
     , generateCCMParams
     , generateGCMParams

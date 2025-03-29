@@ -41,8 +41,8 @@ module Crypto.Store.CMS.Algorithms
     , contentDecrypt
     , AuthContentEncryptionAlg(..)
     , AuthContentEncryptionParams
-    , generateAuthEnc128Params
-    , generateAuthEnc256Params
+    , authEnc128Params
+    , authEnc256Params
     , generateChaChaPoly1305Params
     , generateCCMParams
     , generateGCMParams
@@ -988,9 +988,8 @@ instance Monoid e => ParseASN1Object e AuthEncParams where
 -- | Authenticated-content encryption algorithm with associated parameters
 -- (i.e. the nonce).
 --
--- A value can be generated with functions 'generateAuthEnc128Params',
--- 'generateAuthEnc256Params', 'generateChaChaPoly1305Params',
--- 'generateCCMParams' and 'generateGCMParams'.
+-- A value can be built with functions 'authEnc128Params', 'authEnc256Params',
+-- 'generateChaChaPoly1305Params', 'generateCCMParams' and 'generateGCMParams'.
 data AuthContentEncryptionParams
     = Params_AUTH_ENC_128 AuthEncParams
       -- ^ authEnc with 128-bit keying material
@@ -1090,25 +1089,21 @@ getAuthContentEncryptionAlg (Params_CHACHA20_POLY1305 _) = CHACHA20_POLY1305
 getAuthContentEncryptionAlg (ParamsCCM c _ _ _)     = CCM c
 getAuthContentEncryptionAlg (ParamsGCM c _ _)       = GCM c
 
--- | Generate random 'AUTH_ENC_128' parameters with the specified algorithms.
-generateAuthEnc128Params :: MonadRandom m
-                         => PBKDF2_PRF -> ContentEncryptionAlg -> MACAlgorithm
-                         -> m AuthContentEncryptionParams
-generateAuthEnc128Params prfAlg cea macAlg = do
-    params <- generateEncryptionParams cea
-    return $ Params_AUTH_ENC_128 $
+-- | Get 'AUTH_ENC_128' parameters with the specified algorithms.
+authEnc128Params :: PBKDF2_PRF -> ContentEncryptionParams -> MACAlgorithm
+                 -> AuthContentEncryptionParams
+authEnc128Params prfAlg params macAlg =
+    Params_AUTH_ENC_128 $
         AuthEncParams { prfAlgorithm = prfAlg
                       , encAlgorithm = params
                       , macAlgorithm = macAlg
                       }
 
--- | Generate random 'AUTH_ENC_256' parameters with the specified algorithms.
-generateAuthEnc256Params :: MonadRandom m
-                         => PBKDF2_PRF -> ContentEncryptionAlg -> MACAlgorithm
-                         -> m AuthContentEncryptionParams
-generateAuthEnc256Params prfAlg cea macAlg = do
-    params <- generateEncryptionParams cea
-    return $ Params_AUTH_ENC_256 $
+-- | Get 'AUTH_ENC_256' parameters with the specified algorithms.
+authEnc256Params :: PBKDF2_PRF -> ContentEncryptionParams -> MACAlgorithm
+                 -> AuthContentEncryptionParams
+authEnc256Params prfAlg params macAlg = do
+    Params_AUTH_ENC_256 $
         AuthEncParams { prfAlgorithm = prfAlg
                       , encAlgorithm = params
                       , macAlgorithm = macAlg

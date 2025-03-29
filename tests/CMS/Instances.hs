@@ -314,16 +314,14 @@ instance Arbitrary AuthContentEncryptionParams where
     arbitrary = do
         alg <- arbitrary
         case alg of
-            AUTH_ENC_128 -> arb3 generateAuthEnc128Params
-            AUTH_ENC_256 -> arb3 generateAuthEnc256Params
+            AUTH_ENC_128 -> arb3 authEnc128Params
+            AUTH_ENC_256 -> arb3 authEnc256Params
             CHACHA20_POLY1305 -> generateChaChaPoly1305Params
             CCM c -> do m <- arbitraryM
                         l <- arbitraryL
                         generateCCMParams c m l
             GCM c -> choose (12,16) >>= generateGCMParams c
-      where arb3 fn = do
-                a <- arbitrary; b <- arbitrary; c <- arbitrary
-                fn a b c
+      where arb3 fn = fn <$> arbitrary <*> arbitrary <*> arbitrary
 
 arbitraryM :: Gen CCM_M
 arbitraryM = elements
