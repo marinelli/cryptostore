@@ -36,7 +36,11 @@ module Crypto.Store.PKCS5
     , ContentEncryptionParams
     , ContentEncryptionAlg(..)
     , ContentEncryptionCipher(..)
-    , generateEncryptionParams
+    , ecbParams
+    , generateCBCParams
+    , generateRC2EncryptionParams
+    , generateCFBParams
+    , generateCTRParams
     , getContentEncryptionAlg
     -- * Low-level API
     , pbEncrypt

@@ -52,7 +52,7 @@ Generating a private key and writing to disk, with password-based encryption:
 > privKey <- PrivKeyRSA . snd <$> generate (2048 `div` 8) 0x10001
 > salt <- generateSalt 16
 > let kdf = PBKDF2 salt 200000 Nothing PBKDF2_SHA256
-> encParams <- generateEncryptionParams (CBC AES256)
+> encParams <- generateCBCParams AES256
 > let pbes = PBES2 (PBES2Parameter kdf encParams)
 > writeEncryptedKeyFile "/path/to/privkey.pem" pbes "mypassword" privKey
 Right ()
@@ -139,7 +139,7 @@ Generating a PKCS #12 file containing a private key:
 -- Encrypt the contents
 > salt <- generateSalt 16
 > let kdf = PBKDF2 salt 200000 Nothing PBKDF2_SHA256
-> encParams <- generateEncryptionParams (CBC AES256)
+> encParams <- generateCBCParams AES256
 > let pbes = PBES2 (PBES2Parameter kdf encParams)
 >     Right pkcs12 = encrypted pbes "mypassword" contents
 
@@ -167,7 +167,7 @@ key and a certificate chain.  This pair is the type alias `Credential` in `tls`.
 -- Scheme to reencrypt the key
 > saltK <- generateSalt 16
 > let kdfK = PBKDF2 saltK 200000 Nothing PBKDF2_SHA256
-> encParamsK <- generateEncryptionParams (CBC AES256)
+> encParamsK <- generateCBCParams AES256
 > let sKey = PBES2 (PBES2Parameter kdfK encParamsK)
 
 -- Scheme to reencrypt the certificate chain
@@ -206,7 +206,7 @@ how to use PBKDF2 with SHA-256 HMAC and PRF:
 -- Encrypt the contents
 > salt <- generateSalt 16
 > let kdf = PBKDF2 salt 200000 Nothing PBKDF2_SHA256
-> encParams <- generateEncryptionParams (CBC AES256)
+> encParams <- generateCBCParams AES256
 > let pbes = PBES2 (PBES2Parameter kdf encParams)
 >     Right pkcs12 = encrypted pbes "mypassword" contents
 

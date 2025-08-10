@@ -292,8 +292,11 @@ instance Arbitrary ContentEncryptionAlg where
 instance Arbitrary ContentEncryptionParams where
     arbitrary = arbitrary >>= gen
       where
+        gen (ECB c) = return (ecbParams c)
+        gen (CBC c) = generateCBCParams c
         gen CBC_RC2 = choose (24, 512) >>= generateRC2EncryptionParams
-        gen alg     = generateEncryptionParams alg
+        gen (CFB c) = generateCFBParams c
+        gen (CTR c) = generateCTRParams c
 
 instance Arbitrary AuthContentEncryptionAlg where
     arbitrary = elements

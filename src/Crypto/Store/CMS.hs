@@ -107,8 +107,11 @@ module Crypto.Store.CMS
     , ContentEncryptionParams
     , EncryptedContent
     , EncryptedData(..)
-    , generateEncryptionParams
+    , ecbParams
+    , generateCBCParams
     , generateRC2EncryptionParams
+    , generateCFBParams
+    , generateCTRParams
     , getContentEncryptionAlg
     , encryptData
     , decryptData

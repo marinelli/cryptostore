@@ -13,6 +13,10 @@
   that discarded error details is available with functions renamed
   `pemToKeyAccum`, `pemToPubKeyAccum` and `pemToContentInfoAccum`.
 
+* Function `generateEncryptionParams` is removed and can be replaced with
+  functions `ecbParams`, `generateCBCParams`, `generateCFBParams` or
+  `generateCTRParams` according to the desired mode.
+
 * Functions `generateAuthEnc128Params` and `generateAuthEnc256Params` are
   replaced with `authEnc128Params` and `authEnc256Params`.  The new API expects
   a `ContentEncryptionParams` argument instead of `ContentEncryptionAlg`.

@@ -33,8 +33,11 @@ module Crypto.Store.CMS.Algorithms
     , ContentEncryptionCipher(..)
     , ContentEncryptionAlg(..)
     , ContentEncryptionParams(..)
-    , generateEncryptionParams
+    , ecbParams
+    , generateCBCParams
     , generateRC2EncryptionParams
+    , generateCFBParams
+    , generateCTRParams
     , getContentEncryptionAlg
     , proxyBlockSize
     , contentEncrypt
@@ -712,7 +715,8 @@ instance OIDNameable ContentEncryptionAlg where
 -- | Content encryption algorithm with associated parameters (i.e. the
 -- initialization vector).
 --
--- A value can be generated with 'generateEncryptionParams'.
+-- A value can be built with functions 'ecbParams', 'generateCBCParams',
+-- 'generateRC2EncryptionParams', 'generateCFBParams' and 'generateCTRParams'.
 data ContentEncryptionParams
     = forall c . BlockCipher c => ParamsECB (ContentEncryptionCipher c)
       -- ^ Electronic Codebook
@@ -798,20 +802,34 @@ getContentEncryptionAlg (ParamsCBCRC2 _ _) = CBC_RC2
 getContentEncryptionAlg (ParamsCFB c _)    = CFB c
 getContentEncryptionAlg (ParamsCTR c _)    = CTR c
 
--- | Generate random parameters for the specified content encryption algorithm.
-generateEncryptionParams :: MonadRandom m
-                         => ContentEncryptionAlg -> m ContentEncryptionParams
-generateEncryptionParams (ECB c) = return (ParamsECB c)
-generateEncryptionParams (CBC c) = ParamsCBC c <$> ivGenerate undefined
-generateEncryptionParams CBC_RC2 = ParamsCBCRC2 128 <$> ivGenerate undefined
-generateEncryptionParams (CFB c) = ParamsCFB c <$> ivGenerate undefined
-generateEncryptionParams (CTR c) = ParamsCTR c <$> ivGenerate undefined
+-- | Get 'ECB' parameters for the specified cipher.
+ecbParams :: BlockCipher c
+          => ContentEncryptionCipher c -> ContentEncryptionParams
+ecbParams = ParamsECB
+
+-- | Generate random 'CBC' parameters for the specified cipher.
+generateCBCParams :: (MonadRandom m, BlockCipher c)
+                  => ContentEncryptionCipher c
+                  -> m ContentEncryptionParams
+generateCBCParams c = ParamsCBC c <$> ivGenerate undefined
 
 -- | Generate random RC2 parameters with the specified effective key length (in
 -- bits).
 generateRC2EncryptionParams :: MonadRandom m
                             => Int -> m ContentEncryptionParams
 generateRC2EncryptionParams len = ParamsCBCRC2 len <$> ivGenerate undefined
+
+-- | Generate random 'CFB' parameters for the specified cipher.
+generateCFBParams :: (MonadRandom m, BlockCipher c)
+                  => ContentEncryptionCipher c
+                  -> m ContentEncryptionParams
+generateCFBParams c = ParamsCFB c <$> ivGenerate undefined
+
+-- | Generate random 'CTR' parameters for the specified cipher.
+generateCTRParams :: (MonadRandom m, BlockCipher c)
+                  => ContentEncryptionCipher c
+                  -> m ContentEncryptionParams
+generateCTRParams c = ParamsCTR c <$> ivGenerate undefined
 
 -- | Encrypt a bytearray with the specified content encryption key and
 -- algorithm.
