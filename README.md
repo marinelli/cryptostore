@@ -1,6 +1,5 @@
 # cryptostore
 
-[![Build Status](https://github.com/ocheron/cryptostore/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/ocheron/cryptostore/actions/workflows/tests.yml)
 [![BSD](https://img.shields.io/badge/License-BSD-blue)](https://en.wikipedia.org/wiki/BSD_licenses)
 [![Haskell](https://img.shields.io/badge/Language-Haskell-lightgrey)](https://haskell.org/)
 
