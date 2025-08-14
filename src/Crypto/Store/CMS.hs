@@ -389,15 +389,16 @@ authEnvelopData :: Applicative f
 authEnvelopData oinfo key params envFns aAttrs uAttrs ci =
     f <$> (sequence <$> traverse ($ key) envFns)
   where
+    prm = ASN1ObjectExact params raw
     raw = encodeASN1Object params
     aad = encodeAuthAttrs aAttrs
-    ebs = authContentEncrypt key params raw aad (encapsulate ci)
+    ebs = authContentEncrypt key prm aad (encapsulate ci)
     f ris = build <$> ebs <*> ris
     build (authTag, bs) ris = AuthEnvelopedData
                        { aeOriginatorInfo = oinfo
                        , aeRecipientInfos = ris
                        , aeContentType = getContentType ci
-                       , aeContentEncryptionParams = ASN1ObjectExact params raw
+                       , aeContentEncryptionParams = prm
                        , aeEncryptedContent = bs
                        , aeAuthAttrs = aAttrs
                        , aeMAC = authTag
@@ -415,10 +416,8 @@ openAuthEnvelopedData devFn AuthEnvelopedData{..} = do
     return (r >>= decapsulate ct)
   where
     ct       = aeContentType
-    params   = exactObject aeContentEncryptionParams
-    raw      = exactObjectRaw aeContentEncryptionParams
     aad      = encodeAuthAttrs aeAuthAttrs
-    decr k   = authContentDecrypt k params raw aad aeEncryptedContent aeMAC
+    decr k   = authContentDecrypt k aeContentEncryptionParams aad aeEncryptedContent aeMAC
 
 
 -- SignedData

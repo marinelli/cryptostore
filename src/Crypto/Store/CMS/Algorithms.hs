@@ -1154,10 +1154,10 @@ generateGCMParams c l = do
 -- key and algorithm.
 authContentEncrypt :: forall cek aad ba . (ByteArray cek, ByteArrayAccess aad, ByteArray ba)
                    => cek
-                   -> AuthContentEncryptionParams -> ba
+                   -> ASN1ObjectExact AuthContentEncryptionParams
                    -> aad -> ba -> Either StoreError (AuthTag, ba)
-authContentEncrypt key params paramsRaw aad bs =
-    case params of
+authContentEncrypt key params aad bs =
+    case exactObject params of
         Params_AUTH_ENC_128 p   -> checkAuthKey 16 key >> authEncrypt p
         Params_AUTH_ENC_256 p   -> checkAuthKey 32 key >> authEncrypt p
         Params_CHACHA20_POLY1305 iv -> ccpInit key iv aad >>= ccpEncrypt
@@ -1180,7 +1180,8 @@ authContentEncrypt key params paramsRaw aad bs =
     authEncrypt p@AuthEncParams{..} = do
         let (encKey, macKey) = authKeys key p
         encrypted <- contentEncrypt encKey encAlgorithm bs
-        let macMsg = paramsRaw `B.append` encrypted `B.append` B.convert aad
+        let paramsRaw = exactObjectRaw params
+            macMsg = B.convert paramsRaw `B.append` encrypted `B.append` B.convert aad
             found  = mac macAlgorithm macKey macMsg
         return (found, encrypted)
 
@@ -1188,10 +1189,10 @@ authContentEncrypt key params paramsRaw aad bs =
 -- and algorithm.
 authContentDecrypt :: forall cek aad ba . (ByteArray cek, ByteArrayAccess aad, ByteArray ba)
                    => cek
-                   -> AuthContentEncryptionParams -> ba
+                   -> ASN1ObjectExact AuthContentEncryptionParams
                    -> aad -> ba -> AuthTag -> Either StoreError ba
-authContentDecrypt key params paramsRaw aad bs expected =
-    case params of
+authContentDecrypt key params aad bs expected =
+    case exactObject params of
         Params_AUTH_ENC_128 p   -> checkAuthKey 16 key >> authDecrypt p
         Params_AUTH_ENC_256 p   -> checkAuthKey 32 key >> authDecrypt p
         Params_CHACHA20_POLY1305 iv -> ccpInit key iv aad >>= ccpDecrypt
@@ -1221,7 +1222,8 @@ authContentDecrypt key params paramsRaw aad bs expected =
         | otherwise         = badMac
       where
         (encKey, macKey) = authKeys key p
-        macMsg = paramsRaw `B.append` bs `B.append` B.convert aad
+        paramsRaw = exactObjectRaw params
+        macMsg = B.convert paramsRaw `B.append` bs `B.append` B.convert aad
         found  = mac macAlgorithm macKey macMsg
         acceptable = securityAcceptable macAlgorithm
 
