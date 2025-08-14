@@ -172,7 +172,7 @@ key and a certificate chain.  This pair is the type alias `Credential` in `tls`.
 -- Scheme to reencrypt the certificate chain
 > saltC <- generateSalt 8
 > let kdfC = PBKDF2 saltC 100000 Nothing PBKDF2_SHA256
-> encParamsC <- generateEncryptionParams (CBC AES128)
+> encParamsC <- generateCBCParams AES128
 > let sCert = PBES2 (PBES2Parameter kdfC encParamsC)
 
 -- Write the content back to a new file
@@ -255,7 +255,7 @@ password recipient, then decrypt the data to recover the content.
 > let info = DataCI "Hi, what will you need from the cryptostore?"
 
 -- Content encryption will use AES-128-CBC
-> ceParams <- generateEncryptionParams (CBC AES128)
+> ceParams <- generateCBCParams AES128
 > ceKey <- generateKey ceParams :: IO ContentEncryptionKey
 
 -- Encrypt the Content Encryption Key with a Password Recipient Info,
@@ -263,7 +263,7 @@ password recipient, then decrypt the data to recover the content.
 -- that the recipient will need to know
 > salt <- generateSalt 16
 > let kdf = PBKDF2 salt 200000 Nothing PBKDF2_SHA256
-> keParams <- generateEncryptionParams (CBC AES128)
+> keParams <- generateCBCParams AES128
 > let pri = forPasswordRecipient "mypassword" kdf (PWRIKEK keParams)
 
 -- Generate the enveloped structure for this single recipient.  Encrypted
