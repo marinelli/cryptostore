@@ -8,6 +8,7 @@
 -- Cryptographic Message Syntax algorithms
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -38,6 +39,7 @@ module Crypto.Store.CMS.Algorithms
     , generateRC2EncryptionParams
     , generateCFBParams
     , generateCTRParams
+    , deriveEncryptionKey
     , getContentEncryptionAlg
     , proxyBlockSize
     , contentEncrypt
@@ -49,6 +51,7 @@ module Crypto.Store.CMS.Algorithms
     , generateChaChaPoly1305Params
     , generateCCMParams
     , generateGCMParams
+    , authDeriveEncryptionKey
     , authContentEncrypt
     , authContentDecrypt
     , PBKDF2_PRF(..)
@@ -650,6 +653,9 @@ data ContentEncryptionAlg
       -- ^ Cipher Feedback
     | forall c . BlockCipher c => CTR (ContentEncryptionCipher c)
       -- ^ Counter
+    | forall hashAlg . Hash.HashAlgorithm hashAlg
+        => DeriveHKDF (DigestProxy hashAlg)
+      -- ^ Derivation of content-encryption key with HKDF
 
 instance Show ContentEncryptionAlg where
     show (ECB c) = shows c "_ECB"
@@ -657,6 +663,7 @@ instance Show ContentEncryptionAlg where
     show CBC_RC2 = "RC2_CBC"
     show (CFB c) = shows c "_CFB"
     show (CTR c) = shows c "_CTR"
+    show (DeriveHKDF d) = "CMS_CEK_HKDF_" ++ show d
 
 instance Enumerable ContentEncryptionAlg where
     values = [ CBC DES
@@ -681,6 +688,8 @@ instance Enumerable ContentEncryptionAlg where
              , CFB Camellia128
 
              , CTR Camellia128
+
+             , DeriveHKDF SHA256
              ]
 
 instance OIDable ContentEncryptionAlg where
@@ -707,6 +716,8 @@ instance OIDable ContentEncryptionAlg where
 
     getObjectID (CTR Camellia128)  = [0,3,4401,5,3,1,9,9]
 
+    getObjectID (DeriveHKDF SHA256) = [1,2,840,113549,1,9,16,3,31]
+
     getObjectID ty = error ("Unsupported ContentEncryptionAlg: " ++ show ty)
 
 instance OIDNameable ContentEncryptionAlg where
@@ -728,6 +739,9 @@ data ContentEncryptionParams
       -- ^ Cipher Feedback
     | forall c . BlockCipher c => ParamsCTR (ContentEncryptionCipher c) (IV c)
       -- ^ Counter
+    | forall hashAlg . Hash.HashAlgorithm hashAlg
+        => ParamsDeriveHKDF (DigestProxy hashAlg) ContentEncryptionParams
+      -- ^ Derivation of content-encryption key with HKDF
 
 instance Show ContentEncryptionParams where
     show = show . getContentEncryptionAlg
@@ -738,6 +752,8 @@ instance Eq ContentEncryptionParams where
     ParamsCBCRC2 i1 iv1 == ParamsCBCRC2 i2 iv2 = i1 == i2 && iv1 `B.eq` iv2
     ParamsCFB c1 iv1    == ParamsCFB c2 iv2    = cecI c1 == cecI c2 && iv1 `B.eq` iv2
     ParamsCTR c1 iv1    == ParamsCTR c2 iv2    = cecI c1 == cecI c2 && iv1 `B.eq` iv2
+    ParamsDeriveHKDF d1 a1 == ParamsDeriveHKDF d2 a2 =
+        DigestAlgorithm d1 == DigestAlgorithm d2 && a1 == a2
     _                   == _                   = False
 
 instance HasKeySize ContentEncryptionParams where
@@ -746,6 +762,7 @@ instance HasKeySize ContentEncryptionParams where
     getKeySizeSpecifier (ParamsCBCRC2 i _) = KeySizeFixed $ (i + 7) `div` 8
     getKeySizeSpecifier (ParamsCFB c _)    = getCipherKeySizeSpecifier c
     getKeySizeSpecifier (ParamsCTR c _)    = getCipherKeySizeSpecifier c
+    getKeySizeSpecifier (ParamsDeriveHKDF _ a) = getKeySizeSpecifier a
 
 instance ASN1Elem e => ProduceASN1Object e ContentEncryptionParams where
     asn1s param =
@@ -765,6 +782,7 @@ ceParameterASN1S (ParamsCBC _ iv)      = gOctetString (B.convert iv)
 ceParameterASN1S (ParamsCBCRC2 len iv) = rc2ParameterASN1S len iv
 ceParameterASN1S (ParamsCFB _ iv)      = gOctetString (B.convert iv)
 ceParameterASN1S (ParamsCTR _ iv)      = gOctetString (B.convert iv)
+ceParameterASN1S (ParamsDeriveHKDF _ a) = asn1s a
 
 parseCEParameter :: Monoid e
                  => ContentEncryptionAlg -> ParseASN1 e ContentEncryptionParams
@@ -773,6 +791,7 @@ parseCEParameter (CBC c) = ParamsCBC c <$> (getNext >>= getIV)
 parseCEParameter CBC_RC2 = parseRC2Parameter
 parseCEParameter (CFB c) = ParamsCFB c <$> (getNext >>= getIV)
 parseCEParameter (CTR c) = ParamsCTR c <$> (getNext >>= getIV)
+parseCEParameter (DeriveHKDF d) = ParamsDeriveHKDF d <$> parse
 
 getIV :: BlockCipher cipher => ASN1 -> ParseASN1 e (IV cipher)
 getIV (OctetString ivBs) =
@@ -801,6 +820,7 @@ getContentEncryptionAlg (ParamsCBC c _)    = CBC c
 getContentEncryptionAlg (ParamsCBCRC2 _ _) = CBC_RC2
 getContentEncryptionAlg (ParamsCFB c _)    = CFB c
 getContentEncryptionAlg (ParamsCTR c _)    = CTR c
+getContentEncryptionAlg (ParamsDeriveHKDF d _) = DeriveHKDF d
 
 -- | Get 'ECB' parameters for the specified cipher.
 ecbParams :: BlockCipher c
@@ -831,6 +851,10 @@ generateCTRParams :: (MonadRandom m, BlockCipher c)
                   -> m ContentEncryptionParams
 generateCTRParams c = ParamsCTR c <$> ivGenerate undefined
 
+-- | Use derivation of the content-encryption key with HKDF-SHA256
+deriveEncryptionKey :: ContentEncryptionParams -> ContentEncryptionParams
+deriveEncryptionKey = ParamsDeriveHKDF SHA256
+
 -- | Encrypt a bytearray with the specified content encryption key and
 -- algorithm.
 contentEncrypt :: (ByteArray cek, ByteArray ba)
@@ -844,6 +868,7 @@ contentEncrypt key params bs =
         ParamsCBCRC2 len iv -> getRC2Cipher len key >>= (\c -> force $ cbcEncrypt c iv $ padded c bs)
         ParamsCFB cipher iv -> getCipher cipher key >>= (\c -> force $ cfbEncrypt c iv $ padded c bs)
         ParamsCTR cipher iv -> getCipher cipher key >>= (\c -> force $ ctrCombine c iv $ padded c bs)
+        ParamsDeriveHKDF d a -> deriveHKDF d a key >>= \derived -> contentEncrypt derived a bs
   where
     force x  = x `seq` Right x
     padded c = pad (PKCS7 $ blockSize c)
@@ -861,6 +886,7 @@ contentDecrypt key params bs =
         ParamsCBCRC2 len iv -> getRC2Cipher len key >>= (\c -> unpadded c (cbcDecrypt c iv bs))
         ParamsCFB cipher iv -> getCipher cipher key >>= (\c -> unpadded c (cfbDecrypt c iv bs))
         ParamsCTR cipher iv -> getCipher cipher key >>= (\c -> unpadded c (ctrCombine c iv bs))
+        ParamsDeriveHKDF d a -> deriveHKDF d a key >>= \derived -> contentDecrypt derived a bs
   where
     unpadded c decrypted =
         case unpad (PKCS7 $ blockSize c) decrypted of
@@ -927,6 +953,9 @@ data AuthContentEncryptionAlg
       -- ^ Counter with CBC-MAC
     | forall c . BlockCipher c => GCM (ContentEncryptionCipher c)
       -- ^ Galois Counter Mode
+    | forall hashAlg . Hash.HashAlgorithm hashAlg
+        => AuthDeriveHKDF (DigestProxy hashAlg)
+      -- ^ Derivation of content-encryption key with HKDF
 
 instance Show AuthContentEncryptionAlg where
     show AUTH_ENC_128 = "AUTH_ENC_128"
@@ -934,6 +963,7 @@ instance Show AuthContentEncryptionAlg where
     show CHACHA20_POLY1305 = "CHACHA20_POLY1305"
     show (CCM c)      = shows c "_CCM"
     show (GCM c)      = shows c "_GCM"
+    show (AuthDeriveHKDF d) = "CMS_CEK_HKDF_" ++ show d
 
 instance Enumerable AuthContentEncryptionAlg where
     values = [ AUTH_ENC_128
@@ -947,6 +977,8 @@ instance Enumerable AuthContentEncryptionAlg where
              , GCM AES128
              , GCM AES192
              , GCM AES256
+
+             , AuthDeriveHKDF SHA256
              ]
 
 instance OIDable AuthContentEncryptionAlg where
@@ -961,6 +993,8 @@ instance OIDable AuthContentEncryptionAlg where
     getObjectID (GCM AES128)       = [2,16,840,1,101,3,4,1,6]
     getObjectID (GCM AES192)       = [2,16,840,1,101,3,4,1,26]
     getObjectID (GCM AES256)       = [2,16,840,1,101,3,4,1,46]
+
+    getObjectID (AuthDeriveHKDF SHA256) = [1,2,840,113549,1,9,16,3,31]
 
     getObjectID ty = error ("Unsupported AuthContentEncryptionAlg: " ++ show ty)
 
@@ -1019,6 +1053,9 @@ data AuthContentEncryptionParams
       -- ^ Counter with CBC-MAC
     | forall c . BlockCipher c => ParamsGCM (ContentEncryptionCipher c) B.Bytes Int
       -- ^ Galois Counter Mode
+    | forall hashAlg . Hash.HashAlgorithm hashAlg
+        => ParamsAuthDeriveHKDF (DigestProxy hashAlg) (ASN1ObjectExact AuthContentEncryptionParams)
+      -- ^ Derivation of content-encryption key with HKDF
 
 instance Show AuthContentEncryptionParams where
     show = show . getAuthContentEncryptionAlg
@@ -1033,6 +1070,10 @@ instance Eq AuthContentEncryptionParams where
         cecI c1 == cecI c2 && iv1 == iv2 && (m1, l1) == (m2, l2)
     ParamsGCM c1 iv1 len1  == ParamsGCM c2 iv2 len2  =
         cecI c1 == cecI c2 && iv1 == iv2 && len1 == len2
+
+    ParamsAuthDeriveHKDF d1 a1 == ParamsAuthDeriveHKDF d2 a2 =
+        DigestAlgorithm d1 == DigestAlgorithm d2 && a1 == a2
+
     _               == _               = False
 
 instance HasKeySize AuthContentEncryptionParams where
@@ -1041,21 +1082,22 @@ instance HasKeySize AuthContentEncryptionParams where
     getKeySizeSpecifier (Params_CHACHA20_POLY1305 _) = KeySizeFixed 32
     getKeySizeSpecifier (ParamsCCM c _ _ _)     = getCipherKeySizeSpecifier c
     getKeySizeSpecifier (ParamsGCM c _ _)       = getCipherKeySizeSpecifier c
+    getKeySizeSpecifier (ParamsAuthDeriveHKDF _ a) = getKeySizeSpecifier (exactObject a)
 
-instance ASN1Elem e => ProduceASN1Object e AuthContentEncryptionParams where
+instance ProduceASN1Object ASN1P AuthContentEncryptionParams where
     asn1s param =
         asn1Container Sequence (oid . params)
       where
         oid    = gOID (getObjectID $ getAuthContentEncryptionAlg param)
         params = aceParameterASN1S param
 
-instance Monoid e => ParseASN1Object e AuthContentEncryptionParams where
+instance ParseASN1Object [ASN1Event] AuthContentEncryptionParams where
     parse = onNextContainer Sequence $ do
         OID oid <- getNext
         withObjectID "authenticated-content encryption algorithm" oid
             parseACEParameter
 
-aceParameterASN1S :: ASN1Elem e => AuthContentEncryptionParams -> ASN1Stream e
+aceParameterASN1S :: AuthContentEncryptionParams -> ASN1PS
 aceParameterASN1S (Params_AUTH_ENC_128 p) = asn1s p
 aceParameterASN1S (Params_AUTH_ENC_256 p) = asn1s p
 aceParameterASN1S (Params_CHACHA20_POLY1305 iv) = gOctetString (B.convert iv)
@@ -1069,10 +1111,10 @@ aceParameterASN1S (ParamsGCM _ iv len) =
   where
     nonce  = gOctetString (B.convert iv)
     icvlen = gIntVal (fromIntegral len)
+aceParameterASN1S (ParamsAuthDeriveHKDF _ a) = asn1s a
 
-parseACEParameter :: Monoid e
-                  => AuthContentEncryptionAlg
-                  -> ParseASN1 e AuthContentEncryptionParams
+parseACEParameter :: AuthContentEncryptionAlg
+                  -> ParseASN1 [ASN1Event] AuthContentEncryptionParams
 parseACEParameter AUTH_ENC_128 = Params_AUTH_ENC_128 <$> parse
 parseACEParameter AUTH_ENC_256 = Params_AUTH_ENC_256 <$> parse
 parseACEParameter CHACHA20_POLY1305 = do
@@ -1097,6 +1139,7 @@ parseACEParameter (GCM c)      = onNextContainer Sequence $ do
     when (icvlen < 12 || icvlen > 16) $
         throwParseError $ "Parsed invalid GCM ICV length: " ++ show icvlen
     return (ParamsGCM c (B.convert iv) $ fromIntegral icvlen)
+parseACEParameter (AuthDeriveHKDF d) = ParamsAuthDeriveHKDF d <$> parse
 
 -- | Get the authenticated-content encryption algorithm.
 getAuthContentEncryptionAlg :: AuthContentEncryptionParams
@@ -1106,6 +1149,7 @@ getAuthContentEncryptionAlg (Params_AUTH_ENC_256 _) = AUTH_ENC_256
 getAuthContentEncryptionAlg (Params_CHACHA20_POLY1305 _) = CHACHA20_POLY1305
 getAuthContentEncryptionAlg (ParamsCCM c _ _ _)     = CCM c
 getAuthContentEncryptionAlg (ParamsGCM c _ _)       = GCM c
+getAuthContentEncryptionAlg (ParamsAuthDeriveHKDF d _) = AuthDeriveHKDF d
 
 -- | Get 'AUTH_ENC_128' parameters with the specified algorithms.
 authEnc128Params :: PBKDF2_PRF -> ContentEncryptionParams -> MACAlgorithm
@@ -1150,6 +1194,28 @@ generateGCMParams c l = do
     iv <- nonceGenerate 12
     return (ParamsGCM c iv l)
 
+-- | Use derivation of the content-encryption key with HKDF-SHA256
+authDeriveEncryptionKey :: AuthContentEncryptionParams -> AuthContentEncryptionParams
+authDeriveEncryptionKey = ParamsAuthDeriveHKDF SHA256 . derObjectExact
+
+deriveHKDF :: (Hash.HashAlgorithm a, ProduceASN1Object ASN1P params, ByteArrayAccess ikm)
+           => DigestProxy a -> params -> ikm -> Either StoreError B.ScrubbedBytes
+deriveHKDF hashAlg params ikm
+    | len > maxLen = Left (InvalidParameter "HKDF IKM is too long")
+    | otherwise = Right $ HKDF.expand (extract hashAlg ikm) info len
+  where
+    maxLen = 255 * digestSizeFromProxy hashAlg
+    info = encodeASN1S (asn1s params)
+    len = B.length ikm
+
+    extract :: (Hash.HashAlgorithm a, ByteArrayAccess ikm)
+            => DigestProxy a -> ikm -> HKDF.PRK a
+    extract _ = HKDF.extract (salt :: B.Bytes)
+
+    -- "The Cryptographic Message Syntax"
+    salt = B.pack [84,104,101,32,67,114,121,112,116,111,103,114,97,112,104,105
+                  ,99,32,77,101,115,115,97,103,101,32,83,121,110,116,97,120]
+
 -- | Encrypt a bytearray with the specified authenticated-content encryption
 -- key and algorithm.
 authContentEncrypt :: forall cek aad ba . (ByteArray cek, ByteArrayAccess aad, ByteArray ba)
@@ -1163,6 +1229,8 @@ authContentEncrypt key params aad bs =
         Params_CHACHA20_POLY1305 iv -> ccpInit key iv aad >>= ccpEncrypt
         ParamsCCM cipher iv m l -> getAEAD cipher key (AEAD_CCM msglen m l) iv >>= encrypt (getM m)
         ParamsGCM cipher iv len -> getAEAD cipher key AEAD_GCM iv >>= encrypt len
+        ParamsAuthDeriveHKDF d a -> deriveHKDF d a key >>= \derived ->
+            authContentEncrypt derived a aad bs
   where
     msglen  = B.length bs
     force x = x `seq` Right x
@@ -1198,6 +1266,8 @@ authContentDecrypt key params aad bs expected =
         Params_CHACHA20_POLY1305 iv -> ccpInit key iv aad >>= ccpDecrypt
         ParamsCCM cipher iv m l -> getAEAD cipher key (AEAD_CCM msglen m l) iv >>= decrypt (getM m)
         ParamsGCM cipher iv len -> getAEAD cipher key AEAD_GCM iv >>= decrypt len
+        ParamsAuthDeriveHKDF d a -> deriveHKDF d a key >>= \derived ->
+            authContentDecrypt derived a aad bs expected
   where
     msglen  = B.length bs
     badMac  = Left BadContentMAC
@@ -1526,6 +1596,7 @@ keyEncrypt key (PWRIKEK params) bs =
         ParamsCBCRC2 len iv -> let cc = getRC2Cipher len key in either (return . Left) (\c -> wrapEncrypt cbcEncrypt c iv bs) cc
         ParamsCFB cipher iv -> let cc = getCipher cipher key in either (return . Left) (\c -> wrapEncrypt cfbEncrypt c iv bs) cc
         ParamsCTR _ _       -> return $ Left (InvalidParameter "Unable to wrap key in CTR mode")
+        ParamsDeriveHKDF _ _ -> return $ Left (InvalidParameter "HKDF derivation is incompatible with key wrapping")
 keyEncrypt key AES128_WRAP      bs = return (getCipher AES128 key >>= (`AES_KW.wrap` bs))
 keyEncrypt key AES192_WRAP      bs = return (getCipher AES192 key >>= (`AES_KW.wrap` bs))
 keyEncrypt key AES256_WRAP      bs = return (getCipher AES256 key >>= (`AES_KW.wrap` bs))
@@ -1547,6 +1618,7 @@ keyDecrypt key (PWRIKEK params) bs =
         ParamsCBCRC2 len iv -> getRC2Cipher len key >>= (\c -> wrapDecrypt cbcDecrypt c iv bs)
         ParamsCFB cipher iv -> getCipher cipher key >>= (\c -> wrapDecrypt cfbDecrypt c iv bs)
         ParamsCTR _ _       -> Left (InvalidParameter "Unable to unwrap key in CTR mode")
+        ParamsDeriveHKDF _ _ -> Left (InvalidParameter "HKDF derivation is incompatible with key unwrapping")
 keyDecrypt key AES128_WRAP      bs = getCipher AES128   key >>= (`AES_KW.unwrap` bs)
 keyDecrypt key AES192_WRAP      bs = getCipher AES192   key >>= (`AES_KW.unwrap` bs)
 keyDecrypt key AES256_WRAP      bs = getCipher AES256   key >>= (`AES_KW.unwrap` bs)

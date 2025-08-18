@@ -21,6 +21,13 @@
   replaced with `authEnc128Params` and `authEnc256Params`.  The new API expects
   a `ContentEncryptionParams` argument instead of `ContentEncryptionAlg`.
 
+* CMS encrypted data, enveloped data and authenticated-enveloped data now
+  support optional HKDF-SHA256 derivation of the content-encryption key.  When
+  generating encryption parameters, enable the key derivation feature with a
+  call to functions `deriveEncryptionKey` or `authDeriveEncryptionKey`.  The
+  feature prevents AEAD-to-CBC downgrade attack scenarios for `CCM` and `GCM`
+  modes but requires support from the receiving end.
+
 * Fixed encoding of some HMAC and PRF parameters
 
 ## 0.3.1.0 - 2024-05-05

@@ -287,6 +287,8 @@ instance Arbitrary ContentEncryptionAlg where
         , CFB Camellia128
 
         , CTR Camellia128
+
+        , DeriveHKDF SHA256
         ]
 
 instance Arbitrary ContentEncryptionParams where
@@ -297,6 +299,7 @@ instance Arbitrary ContentEncryptionParams where
         gen CBC_RC2 = choose (24, 512) >>= generateRC2EncryptionParams
         gen (CFB c) = generateCFBParams c
         gen (CTR c) = generateCTRParams c
+        gen (DeriveHKDF _) = deriveEncryptionKey <$> arbitrary
 
 instance Arbitrary AuthContentEncryptionAlg where
     arbitrary = elements
@@ -311,6 +314,8 @@ instance Arbitrary AuthContentEncryptionAlg where
         , GCM AES128
         , GCM AES192
         , GCM AES256
+
+        , AuthDeriveHKDF SHA256
         ]
 
 instance Arbitrary AuthContentEncryptionParams where
@@ -324,6 +329,7 @@ instance Arbitrary AuthContentEncryptionParams where
                         l <- arbitraryL
                         generateCCMParams c m l
             GCM c -> choose (12,16) >>= generateGCMParams c
+            AuthDeriveHKDF _ -> authDeriveEncryptionKey <$> arbitrary
       where arb3 fn = fn <$> arbitrary <*> arbitrary <*> arbitrary
 
 arbitraryM :: Gen CCM_M
@@ -453,7 +459,7 @@ arbitraryEnvDev cek = sized $ \n -> do
     arbitraryPW  = do
         pwd <- arbitraryPassword
         kdf <- arbitrary
-        cea <- arbitrary `suchThat` notModeCTR
+        cea <- arbitrary `suchThat` compatiblePW
         let es = PWRIKEK cea
         return (forPasswordRecipient pwd kdf es, withRecipientPassword pwd)
 
@@ -501,12 +507,13 @@ arbitraryEnvDev cek = sized $ \n -> do
         cert <- arbitrarySignedCertificate (PubKeyX448 pub)
         return (cert, PrivKeyX448 priv)
 
-    -- key wrapping in PWRIKEK is incompatible with CTR mode so we must never
-    -- generate this combination
-    notModeCTR params =
+    -- key wrapping in PWRIKEK is incompatible with CTR mode or HKDF key
+    -- derivation, so we must never generate these combinations
+    compatiblePW params =
         case getContentEncryptionAlg params of
-            CTR _ -> False
-            _     -> True
+            CTR _        -> False
+            DeriveHKDF _ -> False
+            _            -> True
 
 instance Arbitrary OriginatorInfo where
     arbitrary = OriginatorInfo <$> arbitrary <*> arbitrary

@@ -23,6 +23,7 @@
 -- * <https://tools.ietf.org/html/rfc8419 RFC 8419>: Use of Edwards-Curve Digital Signature Algorithm (EdDSA) Signatures in the Cryptographic Message Syntax (CMS)
 -- * <https://tools.ietf.org/html/rfc8702 RFC 8702>: Use of the SHAKE One-Way Hash Functions in the Cryptographic Message Syntax (CMS)
 -- * <https://tools.ietf.org/html/rfc9688 RFC 9688>: Use of the SHA3 One-Way Hash Functions in the Cryptographic Message Syntax (CMS)
+-- * <https://tools.ietf.org/html/rfc9709 RFC 9709>: Encryption Key Derivation in the Cryptographic Message Syntax (CMS) Using HKDF with SHA-256
 {-# LANGUAGE RecordWildCards #-}
 module Crypto.Store.CMS
     ( ContentType(..)
@@ -112,6 +113,7 @@ module Crypto.Store.CMS
     , generateRC2EncryptionParams
     , generateCFBParams
     , generateCTRParams
+    , deriveEncryptionKey
     , getContentEncryptionAlg
     , encryptData
     , decryptData
@@ -131,6 +133,7 @@ module Crypto.Store.CMS
     , generateChaChaPoly1305Params
     , generateCCMParams
     , generateGCMParams
+    , authDeriveEncryptionKey
     , authEnvelopData
     , openAuthEnvelopedData
     -- * Key derivation
@@ -389,8 +392,7 @@ authEnvelopData :: Applicative f
 authEnvelopData oinfo key params envFns aAttrs uAttrs ci =
     f <$> (sequence <$> traverse ($ key) envFns)
   where
-    prm = ASN1ObjectExact params raw
-    raw = encodeASN1Object params
+    prm = derObjectExact params
     aad = encodeAuthAttrs aAttrs
     ebs = authContentEncrypt key prm aad (encapsulate ci)
     f ris = build <$> ebs <*> ris

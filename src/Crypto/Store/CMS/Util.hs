@@ -31,6 +31,7 @@ module Crypto.Store.CMS.Util
     -- * Parsing and encoding ASN.1 objects
     , ASN1Event
     , ASN1ObjectExact(..)
+    , derObjectExact
     , ProduceASN1Object(..)
     , encodeASN1Object
     , ParseASN1Object(..)
@@ -177,6 +178,10 @@ data ASN1ObjectExact a = ASN1ObjectExact
     { exactObject    :: a           -- ^ The wrapped ASN.1 object
     , exactObjectRaw :: ByteString  -- ^ The raw representation of this object
     } deriving Show
+
+-- | Create an ASN.1 object with a raw data in DER format.
+derObjectExact :: ProduceASN1Object ASN1P a => a -> ASN1ObjectExact a
+derObjectExact obj = ASN1ObjectExact obj (encodeASN1Object obj)
 
 instance Eq a => Eq (ASN1ObjectExact a)
     where a == b = exactObject a == exactObject b
