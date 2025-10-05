@@ -15,7 +15,7 @@ compiler: ghc-9.10 lts-24.12
 # options
 option: x509min extradep=basement-0.0.7 extradep=foundation-0.0.20 extradep=memory-0.14.18 extradep=cryptonite-0.26 extradep=x509-1.7.5
 option: cryptomin extradep=cryptonite-0.26
-option: usecrypton flag=cryptostore:use_crypton
+option: x509max extradep=x509-1.7.7 extradep=x509-store-1.6.9 extradep=x509-validation-1.6.12
 
 # builds
 build: ghc-8.0 x509min
@@ -27,9 +27,9 @@ build: ghc-8.10 os=linux,osx
 build: ghc-9.0
 build: ghc-9.2
 build: ghc-9.4
-build: ghc-9.6 usecrypton
-build: ghc-9.8 usecrypton
-build: ghc-9.10 usecrypton
+build: ghc-9.6
+build: ghc-9.8 x509max
+build: ghc-9.10 x509max
 
 # packages
 package: '.'
