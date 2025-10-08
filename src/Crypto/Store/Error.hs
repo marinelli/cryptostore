@@ -44,6 +44,8 @@ data StoreError =
       -- ^ Some condition is not met about input password
     | InvalidParameter String
       -- ^ Some condition is not met about algorithm parameters
+    | PublicPrivateKeyMismatch
+      -- ^ The public key or certificate does not match the private key
     | UnexpectedPublicKeyType
       -- ^ The algorithm expects another public key type
     | UnexpectedPrivateKeyType

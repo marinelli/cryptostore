@@ -149,6 +149,7 @@ import           Crypto.Store.Error
 import qualified Crypto.Store.KeyWrap.AES as AES_KW
 import qualified Crypto.Store.KeyWrap.TripleDES as TripleDES_KW
 import qualified Crypto.Store.KeyWrap.RC2 as RC2_KW
+import           Crypto.Store.Keys
 import           Crypto.Store.PKCS8.EC
 import           Crypto.Store.Util
 
@@ -1790,12 +1791,12 @@ transportEncrypt _ _ _ = return $ Left UnexpectedPublicKeyType
 -- private key.
 transportDecrypt :: MonadRandom m
                  => KeyTransportParams
-                 -> X509.PrivKey
+                 -> KeyPair
                  -> ByteString
                  -> m (Either StoreError ByteString)
-transportDecrypt RSAES         (X509.PrivKeyRSA priv) bs =
+transportDecrypt RSAES         (KeyPairRSA priv _) bs =
     mapLeft RSAError <$> RSA.decryptSafer priv bs
-transportDecrypt (RSAESOAEP p) (X509.PrivKeyRSA priv) bs
+transportDecrypt (RSAESOAEP p) (KeyPairRSA priv _) bs
     | securityAcceptable p =
         withOAEPParams p $ \params ->
             mapLeft RSAError <$> RSAOAEP.decryptSafer params priv bs
@@ -1986,8 +1987,8 @@ ecdhEncrypt (CofactorDH _ _) _ (PairX448 _ _) _ =
 -- | Decrypt the specified content with an ECDH key pair and key-agreement
 -- algorithm.
 ecdhDecrypt :: ByteArray ba
-            => KeyAgreementParams -> Maybe ByteString -> X509.PrivKey -> ByteString -> ba -> Either StoreError ba
-ecdhDecrypt (StdDH dig kep) ukm (X509.PrivKeyEC priv) pt bs =
+            => KeyAgreementParams -> Maybe ByteString -> KeyPair -> ByteString -> ba -> Either StoreError ba
+ecdhDecrypt (StdDH dig kep) ukm (KeyPairEC priv _) pt bs =
     case ecPrivKeyCurve priv of
         Nothing    -> Left UnsupportedEllipticCurve
         Just curve ->
@@ -1998,16 +1999,16 @@ ecdhDecrypt (StdDH dig kep) ukm (X509.PrivKeyEC priv) pt bs =
                         s = ECDH.getShared curve d pub
                         k = ecdhKeyMaterial dig kep ukm s :: B.ScrubbedBytes
                     keyDecrypt k kep bs
-ecdhDecrypt (StdDH dig kep) ukm (X509.PrivKeyX25519 priv) pt bs = do
+ecdhDecrypt (StdDH dig kep) ukm (KeyPairX25519 priv _) pt bs = do
     s <- fromCryptoFailable (X25519.publicKey pt >>= ecdh x25519 priv)
     let k = ecdhKeyMaterial dig kep ukm s :: B.ScrubbedBytes
     keyDecrypt k kep bs
-ecdhDecrypt (StdDH dig kep) ukm (X509.PrivKeyX448 priv) pt bs = do
+ecdhDecrypt (StdDH dig kep) ukm (KeyPairX448 priv _) pt bs = do
     s <- fromCryptoFailable (X448.publicKey pt >>= ecdh x448 priv)
     let k = ecdhKeyMaterial dig kep ukm s :: B.ScrubbedBytes
     keyDecrypt k kep bs
 ecdhDecrypt (StdDH _ _) _ _ _ _ = Left UnexpectedPrivateKeyType
-ecdhDecrypt (CofactorDH dig kep) ukm (X509.PrivKeyEC priv) pt bs =
+ecdhDecrypt (CofactorDH dig kep) ukm (KeyPairEC priv _) pt bs =
     case ecPrivKeyCurve priv of
         Nothing    -> Left UnsupportedEllipticCurve
         Just curve ->
@@ -2300,23 +2301,22 @@ instance AlgorithmId SignatureAlg where
     parseParameter TypeEd25519      = return Ed25519
     parseParameter TypeEd448        = return Ed448
 
--- | Sign a message using the specified algorithm and private key.  The
--- corresponding public key is also required for some algorithms.
-signatureGenerate :: MonadRandom m => SignatureAlg -> X509.PrivKey -> X509.PubKey -> ByteString -> m (Either StoreError SignatureValue)
-signatureGenerate RSAAnyHash _ _ _ =
+-- | Sign a message using the specified algorithm and private key.
+signatureGenerate :: MonadRandom m => SignatureAlg -> KeyPair -> ByteString -> m (Either StoreError SignatureValue)
+signatureGenerate RSAAnyHash _ _ =
     error "signatureGenerate: should call signatureResolveHash first"
-signatureGenerate (RSA alg)   (X509.PrivKeyRSA priv) (X509.PubKeyRSA _) msg =
+signatureGenerate (RSA alg)   (KeyPairRSA priv _) msg =
     let err = return . Left $ InvalidParameter ("Invalid hash algorithm for RSA: " ++ show alg)
      in withHashAlgorithmASN1 alg err $ \hashAlg ->
             mapLeft RSAError <$> RSA.signSafer (Just hashAlg) priv msg
-signatureGenerate (RSAPSS p)  (X509.PrivKeyRSA priv) (X509.PubKeyRSA _) msg =
+signatureGenerate (RSAPSS p)  (KeyPairRSA priv _) msg =
     withPSSParams p $ \params ->
         mapLeft RSAError <$> RSAPSS.signSafer params priv msg
-signatureGenerate (DSA alg)   (X509.PrivKeyDSA priv) (X509.PubKeyDSA _) msg =
+signatureGenerate (DSA alg)   (KeyPairDSA pair) msg =
     case alg of
         DigestAlgorithm t ->
-            Right . dsaFromSignature <$> DSA.sign priv (hashFromProxy t) msg
-signatureGenerate (ECDSA alg) (X509.PrivKeyEC priv)  (X509.PubKeyEC _)  msg =
+            Right . dsaFromSignature <$> DSA.sign (DSA.toPrivateKey pair) (hashFromProxy t) msg
+signatureGenerate (ECDSA alg) (KeyPairEC priv _)  msg =
     case alg of
         DigestAlgorithm t ->
             case ecdsaToPrivateKey priv of
@@ -2324,11 +2324,11 @@ signatureGenerate (ECDSA alg) (X509.PrivKeyEC priv)  (X509.PubKeyEC _)  msg =
                 Just p  ->
                     let h = hashFromProxy t
                      in Right . ecdsaFromSignature <$> ECDSA.sign p h msg
-signatureGenerate Ed25519 (X509.PrivKeyEd25519 priv) (X509.PubKeyEd25519 pub) msg =
+signatureGenerate Ed25519 (KeyPairEd25519 priv pub) msg =
     return . Right . B.convert $ Ed25519.sign priv pub msg
-signatureGenerate Ed448 (X509.PrivKeyEd448 priv) (X509.PubKeyEd448 pub) msg =
+signatureGenerate Ed448 (KeyPairEd448 priv pub) msg =
     return . Right . B.convert $ Ed448.sign priv pub msg
-signatureGenerate _ _ _ _ = return (Left UnexpectedPrivateKeyType)
+signatureGenerate _ _ _ = return (Left UnexpectedPrivateKeyType)
 
 -- | Verify a message signature using the specified algorithm and public key.
 signatureVerify :: SignatureAlg -> X509.PubKey -> ByteString -> SignatureValue -> Bool

@@ -94,6 +94,7 @@ import Crypto.Store.CMS.Encrypted
 import Crypto.Store.CMS.Enveloped
 import Crypto.Store.CMS.Util
 import Crypto.Store.Error
+import Crypto.Store.Keys
 import Crypto.Store.PKCS5
 import Crypto.Store.PKCS5.PBES1
 import Crypto.Store.PKCS8
@@ -498,7 +499,7 @@ instance OIDNameable SafeType where
     fromObjectID oid = unOIDNW <$> fromObjectID oid
 
 -- | Main bag payload in PKCS #12 contents.
-data SafeInfo = KeyBag (FormattedKey X509.PrivKey) -- ^ unencrypted private key
+data SafeInfo = KeyBag (FormattedKey KeyPair)      -- ^ unencrypted private key
               | PKCS8ShroudedKeyBag PKCS5          -- ^ encrypted private key
               | CertBag (Bag CertInfo)             -- ^ certificate
               | CRLBag (Bag CRLInfo)               -- ^ CRL
@@ -558,7 +559,7 @@ filterByFriendlyName name = filterBags ((== Just name) . getFriendlyName)
 filterByLocalKeyId :: BS.ByteString -> SafeContents -> SafeContents
 filterByLocalKeyId d = filterBags ((== Just d) . getLocalKeyId)
 
-getSafeKeysId :: SafeContents -> [OptProtected (Id X509.PrivKey)]
+getSafeKeysId :: SafeContents -> [OptProtected (Id KeyPair)]
 getSafeKeysId (SafeContents scs) = loop scs
   where
     loop []           = []
@@ -575,10 +576,10 @@ getSafeKeysId (SafeContents scs) = loop scs
         return (mkId k bag)
 
 -- | Return all private keys contained in the safe contents.
-getSafeKeys :: SafeContents -> [OptProtected X509.PrivKey]
+getSafeKeys :: SafeContents -> [OptProtected KeyPair]
 getSafeKeys = map (fmap unId) . getSafeKeysId
 
-getAllSafeKeysId :: [SafeContents] -> OptProtected [Id X509.PrivKey]
+getAllSafeKeysId :: [SafeContents] -> OptProtected [Id KeyPair]
 getAllSafeKeysId = applySamePassword . concatMap getSafeKeysId
 
 -- | Return all private keys contained in the safe content list.  All shrouded
@@ -588,7 +589,7 @@ getAllSafeKeysId = applySamePassword . concatMap getSafeKeysId
 -- least is encrypted.  This does not mean all keys were actually protected in
 -- the input.  If detailed view is required then function 'getSafeKeys' is
 -- available.
-getAllSafeKeys :: [SafeContents] -> OptProtected [X509.PrivKey]
+getAllSafeKeys :: [SafeContents] -> OptProtected [KeyPair]
 getAllSafeKeys = applySamePassword . concatMap getSafeKeys
 
 getSafeX509CertsId :: SafeContents -> [Id X509.SignedCertificate]
@@ -643,19 +644,23 @@ getInnerCredential l = SamePassword (fn <$> getAllSafeKeysId l)
                 -- and follow the issuers to get all certificates in the chain
                 let filtered = map (filterByLocalKeyId d) l
                 leaf <- single (getAllSafeX509Certs filtered)
-                pure (buildCertificateChain leaf certs, k)
+                guard (keyPairMatchesCert k leaf)
+                pure (buildCertificateChain leaf certs, keyPairToPrivKey k)
             Nothing ->
                 case idName iKey of
                     Just name -> do
                         -- same but using friendly name of private key
                         let filtered = map (filterByFriendlyName name) l
                         leaf <- single (getAllSafeX509Certs filtered)
-                        pure (buildCertificateChain leaf certs, k)
+                        guard (keyPairMatchesCert k leaf)
+                        pure (buildCertificateChain leaf certs, keyPairToPrivKey k)
                     Nothing   -> do
-                        -- no identifier available, so we simply return all
-                        -- certificates with input order
-                        guard (not $ null certs)
-                        pure (X509.CertificateChain certs, k)
+                        -- no identifier available, so we have to search all
+                        -- certificates for the one consistent with the private
+                        -- key
+                        leaf <- single (filterWithPrivKey k certs)
+                        pure (buildCertificateChain leaf certs, keyPairToPrivKey k)
+    filterWithPrivKey = filter . keyPairMatchesCert
 
 -- | Extract the private key and certificate chain from a 'PKCS12' value.  A
 -- credential is returned when the structure contains exactly one private key
@@ -672,7 +677,8 @@ getInnerCredentialNamed name l = SamePassword (fn <$> getAllSafeKeys filtered)
     fn keys  = do
         k <- single keys
         leaf <- single (getAllSafeX509Certs filtered)
-        pure (buildCertificateChain leaf certs, k)
+        guard (keyPairMatchesCert k leaf)
+        pure (buildCertificateChain leaf certs, keyPairToPrivKey k)
 
 -- | Extract a private key and certificate chain with the specified friendly
 -- name from a 'PKCS12' value.  A credential is returned when the structure
@@ -730,10 +736,14 @@ fromCredential' trans algChain algKey pwd (X509.CertificateChain certs@(leaf:_),
     certAttrs     = attrs : repeat []
     toCertBag a c = Bag (CertBag (Bag (CertX509 c) [])) a
 
-    scKeyOrError = wrap <$> encrypt algKey pwd encodedKey
+    scKeyOrError
+        | keyPairMatchesCert pair leaf =
+            wrap <$> encrypt algKey pwd encodedKey
+        | otherwise = Left PublicPrivateKeyMismatch
 
     wrap shrouded = SafeContents [Bag (PKCS8ShroudedKeyBag shrouded) attrs]
-    encodedKey    = encodeASN1Object (FormattedKey PKCS8Format key)
+    encodedKey    = encodeASN1Object (FormattedKey PKCS8Format pair)
+    pair          = keyPairFromPrivKey key
 
     X509.Fingerprint keyId = X509.getFingerprint leaf X509.HashSHA1
     attrs = trans (setLocalKeyId keyId [])

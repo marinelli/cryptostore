@@ -40,14 +40,18 @@ instance Arbitrary EncryptionScheme where
                       , PBE_SHA1_RC2_40 <$> arbitrary
                       ]
 
+instance Arbitrary KeyPair where
+    arbitrary = keyPairFromPrivKey <$> arbitrary
+
 instance Arbitrary PrivateKeyFormat where
     arbitrary = elements [ TraditionalFormat, PKCS8Format ]
 
-instance Arbitrary (FormattedKey PrivKey) where
+instance Arbitrary (FormattedKey KeyPair) where
     arbitrary = do
-        key <- arbitrary
+        pair <- arbitrary
+        let key = keyPairToPrivKey pair
         fmt <- if pkcs8only key then return PKCS8Format else arbitrary
-        return (FormattedKey fmt key)
+        return (FormattedKey fmt pair)
 
 pkcs8only :: PrivKey -> Bool
 pkcs8only (PrivKeyX25519  _)   = True

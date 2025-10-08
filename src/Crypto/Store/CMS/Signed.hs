@@ -48,6 +48,7 @@ import Crypto.Store.CMS.OriginatorInfo
 import Crypto.Store.CMS.Type
 import Crypto.Store.CMS.Util
 import Crypto.Store.Error
+import Crypto.Store.Keys
 
 -- | Encapsulated content.
 type EncapsulatedContent = ByteString
@@ -167,15 +168,16 @@ type ConsumerOfSI m = ContentType -> ByteString -> SignerInfo -> [CertificateCho
 -- the full message.
 certSigner :: MonadRandom m
            => SignatureAlg
-           -> PrivKey
+           -> KeyPair
            -> CertificateChain
            -> Maybe [Attribute]
            -> [Attribute]
            -> ProducerOfSI m
 certSigner _ _ (CertificateChain []) _ _ _ _ =
     pure $ Left (InvalidInput "Empty certificate chain")
-certSigner alg priv (CertificateChain chain@(cert:_)) sAttrsM uAttrs ct msg =
-    fmap build <$> generate
+certSigner alg pair (CertificateChain chain@(cert:_)) sAttrsM uAttrs ct msg
+    | keyPairMatchesKey pair pub = fmap build <$> generate
+    | otherwise = pure $ Left PublicPrivateKeyMismatch
   where
     md   = digest dig msg
     def  = DigestAlgorithm Crypto.Store.CMS.Algorithms.SHA256
@@ -193,7 +195,7 @@ certSigner alg priv (CertificateChain chain@(cert:_)) sAttrsM uAttrs ct msg =
                 let l = setContentTypeAttr ct $ setMessageDigestAttr md attrs
                  in (l, encodeAuthAttrs l)
 
-    generate  = signatureGenerate alg' priv pub input
+    generate  = signatureGenerate alg' pair input
     build sig =
         let si = SignerInfo { siSignerId = SignerIASN isn
                             , siDigestAlgorithm = dig

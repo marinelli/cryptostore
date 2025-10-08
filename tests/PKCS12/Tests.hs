@@ -153,18 +153,21 @@ propertyTests = localOption (QuickCheckMaxSize 5) $ testGroup "properties"
         return $ Right (Right (Right (pI, c))) === (fmap (recoverAuthenticated p) <$> r)
     , localOption (QuickCheckTests 20) $ testProperty "converting credentials" $
         \pChain pKey privKey ->
+            supportedAsEncodedPubKey privKey ==>
             testCredConv privKey toCredential (fromCredential pChain pKey)
     , localOption (QuickCheckTests 20) $ testProperty "converting named credentials" $
-        \pChain pKey privKey -> do
-            name <- arbitraryAlias
-            testCredConv privKey
-                (toNamedCredential name)
-                (fromNamedCredential name pChain pKey)
+        \pChain pKey privKey ->
+            supportedAsEncodedPubKey privKey ==> do
+                name <- arbitraryAlias
+                testCredConv privKey
+                    (toNamedCredential name)
+                    (fromNamedCredential name pChain pKey)
     ]
   where
     testCredConv privKey to from = do
         pwd <- arbitrary
-        chain <- arbitrary >>= arbitraryCertificateChain
+        let pub = keyPairToPubKey (keyPairFromPrivKey privKey)
+        chain <- arbitraryCertificateChain pub
         chain' <- shuffleCertificateChain chain
         let cred = (chain, privKey)
             r = from pwd (chain', privKey) >>= recover pwd . to

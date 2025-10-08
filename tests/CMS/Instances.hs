@@ -21,6 +21,7 @@ import Crypto.Cipher.Types
 
 import Crypto.Store.CMS
 import Crypto.Store.Error
+import Crypto.Store.PKCS8
 
 import X509.Instances
 
@@ -219,28 +220,21 @@ instance Arbitrary SignatureAlg where
         , pure Ed448
         ]
 
-arbitraryKeyPair :: SignatureAlg -> Gen (PubKey, PrivKey)
-arbitraryKeyPair RSAAnyHash = do
-    (pub, priv) <- arbitraryRSA
-    return (PubKeyRSA pub, PrivKeyRSA priv)
-arbitraryKeyPair (RSA _) = do
-    (pub, priv) <- arbitraryRSA
-    return (PubKeyRSA pub, PrivKeyRSA priv)
-arbitraryKeyPair (RSAPSS _) = do
-    (pub, priv) <- arbitraryRSA
-    return (PubKeyRSA pub, PrivKeyRSA priv)
-arbitraryKeyPair (DSA _) = do
-    (pub, priv) <- arbitraryDSA
-    return (PubKeyDSA pub, PrivKeyDSA priv)
-arbitraryKeyPair (ECDSA _) = do
-    (pub, priv) <- arbitraryNamedEC
-    return (PubKeyEC pub, PrivKeyEC priv)
-arbitraryKeyPair Ed25519 = do
-    (pub, priv) <- arbitraryEd25519
-    return (PubKeyEd25519 pub, PrivKeyEd25519 priv)
-arbitraryKeyPair Ed448 = do
-    (pub, priv) <- arbitraryEd448
-    return (PubKeyEd448 pub, PrivKeyEd448 priv)
+arbitraryKeyPair :: SignatureAlg -> Gen KeyPair
+arbitraryKeyPair RSAAnyHash =
+    keyPairFromPrivKey . PrivKeyRSA . snd <$> arbitraryRSA
+arbitraryKeyPair (RSA _) =
+    keyPairFromPrivKey . PrivKeyRSA . snd <$> arbitraryRSA
+arbitraryKeyPair (RSAPSS _) =
+    keyPairFromPrivKey . PrivKeyRSA . snd <$> arbitraryRSA
+arbitraryKeyPair (DSA _) =
+    keyPairFromPrivKey . PrivKeyDSA <$> arbitraryPrivDSA
+arbitraryKeyPair (ECDSA _) =
+    keyPairFromPrivKey . PrivKeyEC . snd <$> arbitraryNamedEC
+arbitraryKeyPair Ed25519 =
+    keyPairFromPrivKey . PrivKeyEd25519 . snd <$> arbitraryEd25519
+arbitraryKeyPair Ed448 =
+    keyPairFromPrivKey . PrivKeyEd448 . snd <$> arbitraryEd448
 
 arbitrarySigVer :: SignatureAlg -> Gen ([ProducerOfSI Gen], ConsumerOfSI Gen)
 arbitrarySigVer alg = sized $ \n -> do
@@ -250,11 +244,12 @@ arbitrarySigVer alg = sized $ \n -> do
     return (sigFns, verFn)
   where
     onePair = do
-        (pub, priv) <- arbitraryKeyPair alg
+        pair <- arbitraryKeyPair alg
+        let pub = keyPairToPubKey pair
         chain <- arbitraryCertificateChain pub
         sAttrs <- oneof [ pure Nothing, Just <$> arbitraryAttributes ]
         uAttrs <- arbitraryAttributes
-        return (certSigner alg priv chain sAttrs uAttrs, withPublicKey pub)
+        return (certSigner alg pair chain sAttrs uAttrs, withPublicKey pub)
 
 instance Arbitrary PBKDF2_PRF where
     arbitrary = elements
@@ -433,21 +428,22 @@ arbitraryEnvDev cek = sized $ \n -> do
 
     arbitraryKT = do
         (pub, priv) <- arbitraryLargeRSA
+        let pair = keyPairFromPrivKey (PrivKeyRSA priv)
         cert <- arbitrarySignedCertificate (PubKeyRSA pub)
         ktp  <- arbitrary
         let envFn = forKeyTransRecipient cert ktp
-            devFn = withRecipientKeyTrans (PrivKeyRSA priv)
+            devFn = withRecipientKeyTrans pair
         return (envFn, devFn)
 
     arbitraryKA = do
-        (cert, priv) <- arbitraryDHParams
+        (cert, pair) <- arbitraryDHParams
         let allowCofactorDH =
-                case priv of
+                case keyPairToPrivKey pair of
                     PrivKeyEC _ -> True
                     _           -> False
         kap <- arbitraryAlg >>= arbitraryAgreeParams allowCofactorDH
         let envFn = forKeyAgreeRecipient cert kap
-            devFn = withRecipientKeyAgree priv cert
+            devFn = withRecipientKeyAgree pair cert
         return (envFn, devFn)
 
     arbitraryKEK = do
@@ -494,18 +490,21 @@ arbitraryEnvDev cek = sized $ \n -> do
 
     arbitraryCredNamedEC = do
         (pub, priv) <- arbitraryNamedEC
+        let pair = keyPairFromPrivKey (PrivKeyEC priv)
         cert <- arbitrarySignedCertificate (PubKeyEC pub)
-        return (cert, PrivKeyEC priv)
+        return (cert, pair)
 
     arbitraryCredX25519 = do
         (pub, priv) <- arbitraryX25519
+        let pair = keyPairFromPrivKey (PrivKeyX25519 priv)
         cert <- arbitrarySignedCertificate (PubKeyX25519 pub)
-        return (cert, PrivKeyX25519 priv)
+        return (cert, pair)
 
     arbitraryCredX448 = do
         (pub, priv) <- arbitraryX448
+        let pair = keyPairFromPrivKey (PrivKeyX448 priv)
         cert <- arbitrarySignedCertificate (PubKeyX448 pub)
-        return (cert, PrivKeyX448 priv)
+        return (cert, pair)
 
     -- key wrapping in PWRIKEK is incompatible with CTR mode or HKDF key
     -- derivation, so we must never generate these combinations

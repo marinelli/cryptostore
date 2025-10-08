@@ -52,6 +52,7 @@ library
                      , Crypto.Store.CMS.Type
                      , Crypto.Store.CMS.Util
                      , Crypto.Store.Cipher.RC2.Primitive
+                     , Crypto.Store.Keys
                      , Crypto.Store.PEM
                      , Crypto.Store.PKCS5.PBES1
                      , Crypto.Store.PKCS8.EC

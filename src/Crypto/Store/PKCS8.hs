@@ -9,7 +9,10 @@
 --
 -- Presents an API similar to "Data.X509.Memory" and "Data.X509.File" but
 -- allows to write private keys and provides support for password-based
--- encryption.
+-- encryption.  Private keys are actually stored along with the corresponding
+-- public key in a type 'KeyPair'.  'X509.PrivKey' and 'X509.PubKey' components
+-- can be obtained by calling functions 'keyPairToPrivKey' and
+-- 'keyPairToPubKey'.  Call function 'keyPairFromPrivKey' to build a 'KeyPair'.
 --
 -- Functions to read a private key return an object wrapped in the
 -- 'OptProtected' data type.
@@ -32,6 +35,11 @@ module Crypto.Store.PKCS8
     , writeEncryptedKeyFile
     , writeEncryptedKeyFileToMemory
     , encryptKeyToPEM
+    -- * Key pairs
+    , KeyPair
+    , keyPairFromPrivKey
+    , keyPairToPrivKey
+    , keyPairToPubKey
     -- * Serialization formats
     , PrivateKeyFormat(..)
     , FormattedKey(..)
@@ -55,6 +63,7 @@ import Data.ASN1.Types
 import Data.ASN1.BinaryEncoding
 import Data.ASN1.BitArray
 import Data.ASN1.Encoding
+import Data.Bifunctor (first)
 import Data.ByteArray (ByteArrayAccess, convert)
 import Data.Either (rights)
 import Data.Maybe
@@ -75,6 +84,7 @@ import Crypto.Store.ASN1.Parse
 import Crypto.Store.CMS.Attribute
 import Crypto.Store.CMS.Util
 import Crypto.Store.Error
+import Crypto.Store.Keys
 import Crypto.Store.PEM
 import Crypto.Store.PKCS5
 import Crypto.Store.PKCS8.EC
@@ -118,20 +128,20 @@ recoverA get (Protected f)   = fmap f get
 -- Reading from PEM format
 
 -- | Read private keys from a PEM file.
-readKeyFile :: FilePath -> IO [OptProtected X509.PrivKey]
+readKeyFile :: FilePath -> IO [OptProtected KeyPair]
 readKeyFile path = accumulate <$> readPEMs path
 
 -- | Read private keys from a bytearray in PEM format.
-readKeyFileFromMemory :: B.ByteString -> [OptProtected X509.PrivKey]
+readKeyFileFromMemory :: B.ByteString -> [OptProtected KeyPair]
 readKeyFileFromMemory = either (const []) accumulate . pemParseBS
 
-accumulate :: [PEM] -> [OptProtected X509.PrivKey]
+accumulate :: [PEM] -> [OptProtected KeyPair]
 accumulate = rights . map pemToKey
 
 -- | Read a private key from a 'PEM' element and add it to the accumulator list.
 --
 -- This API is modelled after the original @pemToKey@ in "Data.X509.Memory".
-pemToKeyAccum :: [Maybe (OptProtected X509.PrivKey)] -> PEM -> [Maybe (OptProtected X509.PrivKey)]
+pemToKeyAccum :: [Maybe (OptProtected KeyPair)] -> PEM -> [Maybe (OptProtected KeyPair)]
 pemToKeyAccum acc pem =
     case pemToKey pem of
         Left (DecodingError _) -> acc
@@ -139,7 +149,7 @@ pemToKeyAccum acc pem =
         Right key              -> Just key : acc
 
 -- | Read a private key from a 'PEM' element.
-pemToKey :: PEM -> Either StoreError (OptProtected X509.PrivKey)
+pemToKey :: PEM -> Either StoreError (OptProtected KeyPair)
 pemToKey pem = do
     asn1 <- mapLeft DecodingError $ decodeASN1' BER (pemContent pem)
     parser <- getParser (pemName pem)
@@ -147,13 +157,13 @@ pemToKey pem = do
 
   where
     allTypes  = unFormat <$> parse
-    rsa       = X509.PrivKeyRSA . unFormat <$> parse
-    dsa       = X509.PrivKeyDSA . DSA.toPrivateKey . unFormat <$> parse
-    ecdsa     = X509.PrivKeyEC . unFormat <$> parse
-    x25519    = X509.PrivKeyX25519 <$> parseModern
-    x448      = X509.PrivKeyX448 <$> parseModern
-    ed25519   = X509.PrivKeyEd25519 <$> parseModern
-    ed448     = X509.PrivKeyEd448 <$> parseModern
+    rsa       = keyPairFromPrivKey . X509.PrivKeyRSA . unFormat <$> parse
+    dsa       = KeyPairDSA . unFormat <$> parse
+    ecdsa     = keyPairFromPrivKey . X509.PrivKeyEC . unFormat <$> parse
+    x25519    = keyPairFromPrivKey . X509.PrivKeyX25519 <$> parseModern
+    x448      = keyPairFromPrivKey . X509.PrivKeyX448 <$> parseModern
+    ed25519   = keyPairFromPrivKey . X509.PrivKeyEd25519 <$> parseModern
+    ed448     = keyPairFromPrivKey . X509.PrivKeyEd448 <$> parseModern
     encrypted = inner . decrypt <$> parse
 
     getParser "PRIVATE KEY"           = return (Unprotected <$> allTypes)
@@ -178,11 +188,11 @@ pemToKey pem = do
 -- Writing to PEM format
 
 -- | Write unencrypted private keys to a PEM file.
-writeKeyFile :: PrivateKeyFormat -> FilePath -> [X509.PrivKey] -> IO ()
+writeKeyFile :: PrivateKeyFormat -> FilePath -> [KeyPair] -> IO ()
 writeKeyFile fmt path = writePEMs path . map (keyToPEM fmt)
 
 -- | Write unencrypted private keys to a bytearray in PEM format.
-writeKeyFileToMemory :: PrivateKeyFormat -> [X509.PrivKey] -> B.ByteString
+writeKeyFileToMemory :: PrivateKeyFormat -> [KeyPair] -> B.ByteString
 writeKeyFileToMemory fmt = pemsWriteBS . map (keyToPEM fmt)
 
 -- | Write a PKCS #8 encrypted private key to a PEM file.
@@ -193,10 +203,10 @@ writeKeyFileToMemory fmt = pemsWriteBS . map (keyToPEM fmt)
 -- Fresh 'EncryptionScheme' parameters should be generated for each key to
 -- encrypt.
 writeEncryptedKeyFile :: FilePath
-                      -> EncryptionScheme -> ProtectionPassword -> X509.PrivKey
+                      -> EncryptionScheme -> ProtectionPassword -> KeyPair
                       -> IO (Either StoreError ())
-writeEncryptedKeyFile path alg pwd privKey =
-    let pem = encryptKeyToPEM alg pwd privKey
+writeEncryptedKeyFile path alg pwd keyPair =
+    let pem = encryptKeyToPEM alg pwd keyPair
      in either (return . Left) (fmap Right . writePEMs path . (:[])) pem
 
 -- | Write a PKCS #8 encrypted private key to a bytearray in PEM format.
@@ -207,48 +217,48 @@ writeEncryptedKeyFile path alg pwd privKey =
 -- Fresh 'EncryptionScheme' parameters should be generated for each key to
 -- encrypt.
 writeEncryptedKeyFileToMemory :: EncryptionScheme -> ProtectionPassword
-                              -> X509.PrivKey -> Either StoreError B.ByteString
-writeEncryptedKeyFileToMemory alg pwd privKey =
-    pemWriteBS <$> encryptKeyToPEM alg pwd privKey
+                              -> KeyPair -> Either StoreError B.ByteString
+writeEncryptedKeyFileToMemory alg pwd keyPair =
+    pemWriteBS <$> encryptKeyToPEM alg pwd keyPair
 
 -- | Generate an unencrypted PEM for a private key.
-keyToPEM :: PrivateKeyFormat -> X509.PrivKey -> PEM
+keyToPEM :: PrivateKeyFormat -> KeyPair -> PEM
 keyToPEM TraditionalFormat = keyToTraditionalPEM
 keyToPEM PKCS8Format       = keyToModernPEM
 
-keyToTraditionalPEM :: X509.PrivKey -> PEM
-keyToTraditionalPEM privKey =
+keyToTraditionalPEM :: KeyPair -> PEM
+keyToTraditionalPEM keyPair =
     mkPEM (typeTag ++ " PRIVATE KEY") (encodeASN1S asn1)
-  where (typeTag, asn1) = traditionalPrivKeyASN1S privKey
+  where (typeTag, asn1) = traditionalPrivKeyASN1S keyPair
 
-traditionalPrivKeyASN1S :: ASN1Elem e => X509.PrivKey -> (String, ASN1Stream e)
-traditionalPrivKeyASN1S privKey =
-    case privKey of
-        X509.PrivKeyRSA k -> ("RSA", traditional k)
-        X509.PrivKeyDSA k -> ("DSA", traditional (dsaPrivToPair k))
-        X509.PrivKeyEC  k -> ("EC",  traditional k)
-        X509.PrivKeyX25519  k -> ("X25519",  tradModern k)
-        X509.PrivKeyX448    k -> ("X448",    tradModern k)
-        X509.PrivKeyEd25519 k -> ("ED25519", tradModern k)
-        X509.PrivKeyEd448   k -> ("ED448",   tradModern k)
+traditionalPrivKeyASN1S :: ASN1Elem e => KeyPair -> (String, ASN1Stream e)
+traditionalPrivKeyASN1S keyPair =
+    case keyPair of
+        KeyPairRSA k _ -> ("RSA", traditional k)
+        KeyPairDSA p   -> ("DSA", traditional p)
+        KeyPairEC  k _ -> ("EC",  traditional k)
+        KeyPairX25519  k _ -> ("X25519",  tradModern k)
+        KeyPairX448    k _ -> ("X448",    tradModern k)
+        KeyPairEd25519 k _ -> ("ED25519", tradModern k)
+        KeyPairEd448   k _ -> ("ED448",   tradModern k)
   where
     traditional a = asn1s (Traditional a)
     tradModern a  = asn1s (Modern [] a)
 
-keyToModernPEM :: X509.PrivKey -> PEM
-keyToModernPEM privKey = mkPEM "PRIVATE KEY" (encodeASN1S asn1)
-  where asn1 = modernPrivKeyASN1S [] privKey
+keyToModernPEM :: KeyPair -> PEM
+keyToModernPEM keyPair = mkPEM "PRIVATE KEY" (encodeASN1S asn1)
+  where asn1 = modernPrivKeyASN1S [] keyPair
 
-modernPrivKeyASN1S :: ASN1Elem e => [Attribute] -> X509.PrivKey -> ASN1Stream e
-modernPrivKeyASN1S attrs privKey =
-    case privKey of
-        X509.PrivKeyRSA k -> modern k
-        X509.PrivKeyDSA k -> modern (dsaPrivToPair k)
-        X509.PrivKeyEC  k -> modern k
-        X509.PrivKeyX25519  k -> modern k
-        X509.PrivKeyX448    k -> modern k
-        X509.PrivKeyEd25519 k -> modern k
-        X509.PrivKeyEd448   k -> modern k
+modernPrivKeyASN1S :: ASN1Elem e => [Attribute] -> KeyPair -> ASN1Stream e
+modernPrivKeyASN1S attrs keyPair =
+    case keyPair of
+        KeyPairRSA k _ -> modern k
+        KeyPairDSA p   -> modern p
+        KeyPairEC  k _ -> modern k
+        KeyPairX25519  k _ -> modern k
+        KeyPairX448    k _ -> modern k
+        KeyPairEd25519 k _ -> modern k
+        KeyPairEd448   k _ -> modern k
   where
     modern a = asn1s (Modern attrs a)
 
@@ -256,10 +266,10 @@ modernPrivKeyASN1S attrs privKey =
 --
 -- Fresh 'EncryptionScheme' parameters should be generated for each key to
 -- encrypt.
-encryptKeyToPEM :: EncryptionScheme -> ProtectionPassword -> X509.PrivKey
+encryptKeyToPEM :: EncryptionScheme -> ProtectionPassword -> KeyPair
                 -> Either StoreError PEM
-encryptKeyToPEM alg pwd privKey = toPEM <$> encrypt alg pwd bs
-  where bs = pemContent (keyToModernPEM privKey)
+encryptKeyToPEM alg pwd keyPair = toPEM <$> encrypt alg pwd bs
+  where bs = pemContent (keyToModernPEM keyPair)
         toPEM pkcs8 = mkPEM "ENCRYPTED PRIVATE KEY" (encodeASN1Object pkcs8)
 
 
@@ -310,32 +320,36 @@ unFormat (FormattedKey _ a) = a
 -- Private Keys
 
 instance ASN1Object (FormattedKey X509.PrivKey) where
+    toASN1 = toASN1 . fmap keyPairFromPrivKey
+    fromASN1 = fmap (first (fmap keyPairToPrivKey)) <$> fromASN1
+
+instance ASN1Object (FormattedKey KeyPair) where
     toASN1   = asn1s
     fromASN1 = runParseASN1State parse
 
-instance ASN1Elem e => ProduceASN1Object e (Traditional X509.PrivKey) where
-    asn1s (Traditional privKey) = snd $ traditionalPrivKeyASN1S privKey
+instance ASN1Elem e => ProduceASN1Object e (Traditional KeyPair) where
+    asn1s (Traditional keyPair) = snd $ traditionalPrivKeyASN1S keyPair
 
-instance Monoid e => ParseASN1Object e (Traditional X509.PrivKey) where
+instance Monoid e => ParseASN1Object e (Traditional KeyPair) where
     parse = rsa <|> dsa <|> ecdsa
       where
-        rsa   = Traditional . X509.PrivKeyRSA . unTraditional <$> parse
-        dsa   = Traditional . X509.PrivKeyDSA . DSA.toPrivateKey . unTraditional <$> parse
-        ecdsa = Traditional . X509.PrivKeyEC . unTraditional <$> parse
+        rsa   = Traditional . keyPairFromPrivKey . X509.PrivKeyRSA . unTraditional <$> parse
+        dsa   = Traditional . keyPairFromPrivKey . X509.PrivKeyDSA . DSA.toPrivateKey . unTraditional <$> parse
+        ecdsa = Traditional . keyPairFromPrivKey . X509.PrivKeyEC . unTraditional <$> parse
 
-instance ASN1Elem e => ProduceASN1Object e (Modern X509.PrivKey) where
-    asn1s (Modern attrs privKey) = modernPrivKeyASN1S attrs privKey
+instance ASN1Elem e => ProduceASN1Object e (Modern KeyPair) where
+    asn1s (Modern attrs keyPair) = modernPrivKeyASN1S attrs keyPair
 
-instance Monoid e => ParseASN1Object e (Modern X509.PrivKey) where
+instance Monoid e => ParseASN1Object e (Modern KeyPair) where
     parse = rsa <|> dsa <|> ecdsa <|> x25519 <|> x448 <|> ed25519 <|> ed448
       where
-        rsa   = fmap X509.PrivKeyRSA  <$> parse
-        dsa   = fmap (X509.PrivKeyDSA . DSA.toPrivateKey) <$> parse
-        ecdsa = fmap X509.PrivKeyEC <$> parse
-        x25519  = fmap X509.PrivKeyX25519 <$> parse
-        x448    = fmap X509.PrivKeyX448 <$> parse
-        ed25519 = fmap X509.PrivKeyEd25519 <$> parse
-        ed448   = fmap X509.PrivKeyEd448 <$> parse
+        rsa   = fmap (keyPairFromPrivKey . X509.PrivKeyRSA) <$> parse
+        dsa   = fmap (keyPairFromPrivKey . X509.PrivKeyDSA . DSA.toPrivateKey) <$> parse
+        ecdsa = fmap (keyPairFromPrivKey . X509.PrivKeyEC) <$> parse
+        x25519  = fmap (keyPairFromPrivKey . X509.PrivKeyX25519) <$> parse
+        x448    = fmap (keyPairFromPrivKey . X509.PrivKeyX448) <$> parse
+        ed25519 = fmap (keyPairFromPrivKey . X509.PrivKeyEd25519) <$> parse
+        ed448   = fmap (keyPairFromPrivKey . X509.PrivKeyEd448) <$> parse
 
 
 -- RSA
@@ -471,12 +485,6 @@ parsePQG = do
                       , DSA.params_q = q
                       , DSA.params_g = g
                       }
-
-dsaPrivToPair :: DSA.PrivateKey -> DSA.KeyPair
-dsaPrivToPair k = DSA.KeyPair params pub x
-  where pub     = DSA.calculatePublic params x
-        params  = DSA.private_params k
-        x       = DSA.private_x k
 
 
 -- ECDSA
@@ -695,6 +703,8 @@ skipVersion = do
     when (v /= 0 && v /= 1) $
         throwParseError ("PKCS8: parsed invalid version: " ++ show v)
 
+-- todo: ideally should not skip but parse the public key and verify that it
+-- is consistent with the private key
 skipPublicKey :: Monoid e => ParseASN1 e ()
 skipPublicKey = void (fmap Just parseTaggedPrimitive <|> return Nothing)
   where parseTaggedPrimitive = do { Other _ 1 bs <- getNext; return bs }

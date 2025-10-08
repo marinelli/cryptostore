@@ -4,7 +4,7 @@ module X509.Instances
     ( arbitraryOID
     , arbitraryRSA
     , arbitraryLargeRSA
-    , arbitraryDSA
+    , arbitraryPrivDSA
     , arbitraryNamedEC
     , arbitraryX25519
     , arbitraryX448
@@ -13,6 +13,7 @@ module X509.Instances
     , arbitrarySignedCertificate
     , arbitraryCertificateChain
     , shuffleCertificateChain
+    , supportedAsEncodedPubKey
     ) where
 
 import           Control.Monad (zipWithM)
@@ -58,7 +59,7 @@ arbitraryDN = DistinguishedName <$> resize 5 (listOf1 arbitraryDE)
 
 instance Arbitrary PubKey where
     arbitrary = oneof [ PubKeyRSA . fst <$> arbitraryRSA
-                      , PubKeyDSA . fst <$> arbitraryDSA
+                      , PubKeyDSA <$> arbitraryPubDSA
                       , PubKeyEC . fst  <$> arbitraryNamedEC
                       --, PubKeyEC . fst  <$> arbitraryExplicitPrimeCurve
                       , PubKeyX25519 . fst <$> arbitraryX25519
@@ -69,7 +70,7 @@ instance Arbitrary PubKey where
 
 instance Arbitrary PrivKey where
     arbitrary = oneof [ PrivKeyRSA . snd <$> arbitraryRSA
-                      , PrivKeyDSA . snd <$> arbitraryDSA
+                      , PrivKeyDSA <$> arbitraryPrivDSA
                       , PrivKeyEC . snd  <$> arbitraryNamedEC
                       , PrivKeyEC . snd  <$> arbitraryExplicitPrimeCurve
                       , PrivKeyX25519 . snd <$> arbitraryX25519
@@ -77,6 +78,12 @@ instance Arbitrary PrivKey where
                       , PrivKeyEd25519 . snd <$> arbitraryEd25519
                       , PrivKeyEd448 . snd <$> arbitraryEd448
                       ]
+
+-- package 'x509' has not implemented the serialization of PrivKeyEC_Prime
+-- so we cannot use it in a certificate
+supportedAsEncodedPubKey :: PrivKey -> Bool
+supportedAsEncodedPubKey (PrivKeyEC PrivKeyEC_Prime{}) = False
+supportedAsEncodedPubKey _ = True
 
 arbitraryRSA :: Gen (RSA.PublicKey, RSA.PrivateKey)
 arbitraryRSA = do
@@ -90,13 +97,11 @@ arbitraryLargeRSA = do
     e <- elements [ 3, 0x10001 ]
     RSA.generate (n `div` 8) e
 
-arbitraryDSA :: Gen (DSA.PublicKey, DSA.PrivateKey)
+arbitraryDSA :: Gen DSA.KeyPair
 arbitraryDSA = do
     x <- DSA.generatePrivate params
     let y = DSA.calculatePublic params x
-        priv = DSA.PrivateKey { DSA.private_params = params, DSA.private_x = x }
-        pub = DSA.PublicKey { DSA.public_params = params, DSA.public_y = y }
-    return (pub, priv)
+    return (DSA.KeyPair params y x)
   where
     -- DSA parameters were generated using 'openssl dsaparam -C 2048'
     params = DSA.Params
@@ -104,6 +109,12 @@ arbitraryDSA = do
         , DSA.params_g = 0x10E51AEA37880C5E52DD477ED599D55050C47012D038B9E4B3199C9DE9A5B873B1ABC8B954F26AFEA6C028BCE1783CFE19A88C64E4ED6BFD638802A78457A5C25ABEA98BE9C6EF18A95504C324315EABE7C1EA50E754591E3EFD3D33D4AE47F82F8978ABC871C135133767ACC60683F065430C749C43893D73596B12D5835A78778D0140B2F63B32A5658308DD5BA6BBC49CF6692929FA6A966419404F9A2C216860E3F339EDDB49AD32C294BDB4C9C6BB0D1CC7B691C65968C3A0A5106291CD3810147C8A16B4BFE22968AD9D3890733F4AA9ACD8687A5B981653A4B1824004639956E8C1EDAF31A8224191E8ABD645D2901F5B164B4B93F98039A6EAEC6088
         , DSA.params_q = 0xE1FDFADD32F46B5035EEB3DB81F9974FBCA69BE2223E62FCA8C77989B2AACDF7
         }
+
+arbitraryPrivDSA :: Gen DSA.PrivateKey
+arbitraryPrivDSA = DSA.toPrivateKey <$> arbitraryDSA
+
+arbitraryPubDSA :: Gen DSA.PublicKey
+arbitraryPubDSA = DSA.toPublicKey <$> arbitraryDSA
 
 arbitraryNamedEC :: Gen (PubKeyEC, PrivKeyEC)
 arbitraryNamedEC = do

@@ -32,7 +32,7 @@ Reading a private key from disk:
 > :m Crypto.Store.PKCS8
 > (key : _) <- readKeyFile "/path/to/privkey.pem" -- assuming single key
 > recover "mypassword" key
-Right (PrivKeyRSA ...)
+Right (keyPairFromPrivKey (PrivKeyRSA ...))
 ```
 
 Generating a private key and writing to disk, without encryption:
@@ -40,7 +40,8 @@ Generating a private key and writing to disk, without encryption:
 ```haskell
 > :m Crypto.PubKey.RSA Crypto.Store.PKCS8 Data.X509
 > privKey <- PrivKeyRSA . snd <$> generate (2048 `div` 8) 0x10001
-> writeKeyFile PKCS8Format "/path/to/privkey.pem" [privKey]
+> let keyPair = keyPairFromPrivKey privKey
+> writeKeyFile PKCS8Format "/path/to/privkey.pem" [keyPair]
 ```
 
 Generating a private key and writing to disk, with password-based encryption:
@@ -49,11 +50,12 @@ Generating a private key and writing to disk, with password-based encryption:
 > :set -XOverloadedStrings
 > :m Crypto.PubKey.RSA Crypto.Store.PKCS8 Data.X509 Crypto.Store.PKCS5
 > privKey <- PrivKeyRSA . snd <$> generate (2048 `div` 8) 0x10001
+> let keyPair = keyPairFromPrivKey privKey
 > salt <- generateSalt 16
 > let kdf = PBKDF2 salt 200000 Nothing PBKDF2_SHA256
 > encParams <- generateCBCParams AES256
 > let pbes = PBES2 (PBES2Parameter kdf encParams)
-> writeEncryptedKeyFile "/path/to/privkey.pem" pbes "mypassword" privKey
+> writeEncryptedKeyFile "/path/to/privkey.pem" pbes "mypassword" keyPair
 Right ()
 ```
 
@@ -103,7 +105,7 @@ and privacy (usual case):
 > getAllSafeX509Certs contents
 [SignedExact {getSigned = ...}]
 > recover password (getAllSafeKeys contents)
-Right [PrivKeyRSA ...]
+Right [keyPairFromPrivKey (PrivKeyRSA ...)]
 ```
 
 Reading a binary PKCS #12 file using distinct integrity and privacy passwords:
@@ -117,7 +119,7 @@ Reading a binary PKCS #12 file using distinct integrity and privacy passwords:
 > getAllSafeX509Certs contents
 [SignedExact {getSigned = ...}]
 > recover "myprivacypassword" (getAllSafeKeys contents)
-Right [PrivKeyRSA ...]
+Right [keyPairFromPrivKey (PrivKeyRSA ...)]
 ```
 
 Generating a PKCS #12 file containing a private key:
@@ -131,8 +133,9 @@ Generating a PKCS #12 file containing a private key:
 
 -- Put the key inside a bag
 > :m Crypto.Store.PKCS12 Crypto.Store.PKCS8 Crypto.Store.PKCS5 Crypto.Store.CMS
+> let keyPair = keyPairFromPrivKey privKey
 > let attrs = setFriendlyName "Some Key" []
->     keyBag = Bag (KeyBag $ FormattedKey PKCS8Format privKey) attrs
+>     keyBag = Bag (KeyBag $ FormattedKey PKCS8Format keyPair) attrs
 >     contents = SafeContents [keyBag]
 
 -- Encrypt the contents
@@ -198,8 +201,9 @@ how to use PBKDF2 with SHA-256 HMAC and PRF:
 
 -- Put the key inside a bag
 > :m Crypto.Store.PKCS12 Crypto.Store.PKCS8 Crypto.Store.PKCS5 Crypto.Store.CMS
+> let keyPair = keyPairFromPrivKey privKey
 > let attrs = setFriendlyName "Some Key" []
->     keyBag = Bag (KeyBag $ FormattedKey PKCS8Format privKey) attrs
+>     keyBag = Bag (KeyBag $ FormattedKey PKCS8Format keyPair) attrs
 >     contents = SafeContents [keyBag]
 
 -- Encrypt the contents
@@ -303,7 +307,7 @@ and certificate, then verify the signature and recover the content.
 
 -- Read signer certificate and private key
 > (key : _) <- readKeyFile "/path/to/privkey.pem" -- assuming single key
-> let Right priv = recover "mypassword" key
+> let Right pair = recover "mypassword" key
 > chain <- readSignedObject "/path/to/cert.pem" :: IO [SignedCertificate]
 > let cert = CertificateChain chain
 
@@ -313,7 +317,7 @@ and certificate, then verify the signature and recover the content.
 
 -- Generate the signed structure with a single signer.  Signed content is
 -- kept attached in the structure.
-> let signer = certSigner (RSAPSS params) priv cert (Just []) []
+> let signer = certSigner (RSAPSS params) pair cert (Just []) []
 > Right signedData <- signData [signer] info
 > let signedCI = toAttachedCI signedData
 > writeCMSFile "/path/to/signed.pem" [signedCI]

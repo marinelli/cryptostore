@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* Private keys are now represented as type `KeyPair` defined in module
+  `Crypto.Store.PKCS8` instead of `PrivKey`.  This ensures that the
+  corresponding public key is always available and that the library detects
+  and reports data mistakes involving a wrong public key.  A new error
+  `PublicPrivateKeyMismatch` is added for that purpose and returned by
+  functions `certSigner`, `withRecipientKeyAgree`, `fromCredential` and
+  `fromNamedCredential`.  Behavior of functions `toCredential` and
+  `toNamedCredential` is now more strict, they return a key and leaf
+  certificate that always match.  Functions to convert `KeyPair` to/from the
+  usual type `PrivKey` are also exposed from module `Crypto.Store.PKCS8`.
+
 * Added support of PBMAC1 for PKCS#12 integrity.  Type `IntegrityParams` used
   in functions `writeP12File` and `writeP12FileToMemory` is modified.
   A low-level function for PBMAC1 is also available in the PKCS5 module.

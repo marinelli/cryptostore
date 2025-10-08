@@ -67,6 +67,7 @@ import Crypto.Store.CMS.OriginatorInfo
 import Crypto.Store.CMS.Type
 import Crypto.Store.CMS.Util
 import Crypto.Store.Error
+import Crypto.Store.Keys
 
 -- | Encrypted key.
 type EncryptedKey = ByteString
@@ -508,9 +509,9 @@ forKeyTransRecipient cert params inkey = do
 --
 -- This function can be used as parameter to
 -- 'Crypto.Store.CMS.openEnvelopedData'.
-withRecipientKeyTrans :: MonadRandom m => PrivKey -> ConsumerOfRI m
-withRecipientKeyTrans privKey (KTRI KTRecipientInfo{..}) =
-    transportDecrypt ktKeyTransportParams privKey ktEncryptedKey
+withRecipientKeyTrans :: MonadRandom m => KeyPair -> ConsumerOfRI m
+withRecipientKeyTrans keyPair (KTRI KTRecipientInfo{..}) =
+    transportDecrypt ktKeyTransportParams keyPair ktEncryptedKey
 withRecipientKeyTrans _ _ = pure (Left RecipientTypeMismatch)
 
 -- | Generate a Key Agreement recipient from a certificate and
@@ -553,16 +554,18 @@ forKeyAgreeRecipient cert params inkey = do
 --
 -- This function can be used as parameter to
 -- 'Crypto.Store.CMS.openEnvelopedData'.
-withRecipientKeyAgree :: MonadRandom m => PrivKey -> SignedCertificate -> ConsumerOfRI m
-withRecipientKeyAgree priv cert (KARI KARecipientInfo{..}) =
-    case kaOriginator of
-        OriginatorPublic (OriginatorPublicKeyEC _ ba) ->
-            case findRecipientEncryptedKey cert kaRecipientEncryptedKeys of
-                Nothing -> pure (Left RecipientKeyNotFound)
-                Just ek ->
-                    let pub = bitArrayGetData ba
-                     in pure (ecdhDecrypt kaKeyAgreementParams kaUkm priv pub ek)
-        _ -> pure (Left UnsupportedOriginatorFormat)
+withRecipientKeyAgree :: MonadRandom m => KeyPair -> SignedCertificate -> ConsumerOfRI m
+withRecipientKeyAgree pair cert (KARI KARecipientInfo{..})
+    | keyPairMatchesCert pair cert =
+        case kaOriginator of
+            OriginatorPublic (OriginatorPublicKeyEC _ ba) ->
+                case findRecipientEncryptedKey cert kaRecipientEncryptedKeys of
+                    Nothing -> pure (Left RecipientKeyNotFound)
+                    Just ek ->
+                        let pub = bitArrayGetData ba
+                         in pure (ecdhDecrypt kaKeyAgreementParams kaUkm pair pub ek)
+            _ -> pure (Left UnsupportedOriginatorFormat)
+    | otherwise = pure $ Left PublicPrivateKeyMismatch
 withRecipientKeyAgree _ _ _        = pure (Left RecipientTypeMismatch)
 
 -- | Generate a Key Encryption Key recipient from a key encryption key and
