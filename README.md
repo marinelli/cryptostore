@@ -41,7 +41,7 @@ Generating a private key and writing to disk, without encryption:
 > :m Crypto.PubKey.RSA Crypto.Store.PKCS8 Data.X509
 > privKey <- PrivKeyRSA . snd <$> generate (2048 `div` 8) 0x10001
 > let keyPair = keyPairFromPrivKey privKey
-> writeKeyFile PKCS8Format "/path/to/privkey.pem" [keyPair]
+> writeKeyFile PKCS8Format "/path/to/newkey.pem" [keyPair]
 ```
 
 Generating a private key and writing to disk, with password-based encryption:
@@ -55,7 +55,7 @@ Generating a private key and writing to disk, with password-based encryption:
 > let kdf = PBKDF2 salt 200000 Nothing PBKDF2_SHA256
 > encParams <- generateCBCParams AES256
 > let pbes = PBES2 (PBES2Parameter kdf encParams)
-> writeEncryptedKeyFile "/path/to/privkey.pem" pbes "mypassword" keyPair
+> writeEncryptedKeyFile "/path/to/newkey.pem" pbes "mypassword" keyPair
 Right ()
 ```
 
@@ -113,7 +113,7 @@ Reading a binary PKCS #12 file using distinct integrity and privacy passwords:
 ```haskell
 > :set -XOverloadedStrings
 > :m Crypto.Store.PKCS12
-> Right p12 <- readP12File "/path/to/file.p12"
+> Right p12 <- readP12File "/path/to/other.p12"
 > let Right (_, pkcs12) = recoverAuthenticated "myintegritypassword" p12
 > let Right contents = recover "myprivacypassword" (unPKCS12 pkcs12)
 > getAllSafeX509Certs contents
@@ -148,7 +148,7 @@ Generating a PKCS #12 file containing a private key:
 -- Save to PKCS #12 with integrity protection (same password)
 > salt' <- generateSalt 16
 > let iParams = TraditionalIntegrity (DigestAlgorithm SHA256) (PBEParameter salt' 200000)
-> writeP12File "/path/to/privkey.p12" iParams "mypassword" pkcs12
+> writeP12File "/path/to/newkey.p12" iParams "mypassword" pkcs12
 Right ()
 ```
 
@@ -160,7 +160,7 @@ key and a certificate chain.  This pair is the type alias `Credential` in `tls`.
 > :m Crypto.Store.PKCS12 Crypto.Store.PKCS8 Crypto.Store.PKCS5 Crypto.Store.CMS
 
 -- Read PKCS #12 content as credential
-> Right p12 <- readP12File "/path/to/file.p12"
+> Right p12 <- readP12File "/path/to/other.p12"
 > let Right (_, pkcs12) = recoverAuthenticated "myintegritypassword" p12
 > let Right (Just cred) = recover "myprivacypassword" (toCredential pkcs12)
 > cred
@@ -218,7 +218,7 @@ how to use PBKDF2 with SHA-256 HMAC and PRF:
 > let kdf' = PBKDF2 salt' 200000 (Just 32) PBKDF2_SHA256
 > let authScheme = PBMAC1 $ PBMAC1Parameter kdf' (HMAC SHA256)
 > let iParams = AuthSchemeIntegrity authScheme
-> writeP12File "/path/to/privkey.p12" iParams "mypassword" pkcs12
+> writeP12File "/path/to/newkey.p12" iParams "mypassword" pkcs12
 Right ()
 ```
 
