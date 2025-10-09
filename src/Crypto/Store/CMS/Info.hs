@@ -6,6 +6,7 @@
 -- Portability : unknown
 --
 -- CMS content information.
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -21,7 +22,9 @@ module Crypto.Store.CMS.Info
     , toDetachedCI
     ) where
 
+#if !(MIN_VERSION_base(4,13,0))
 import Control.Monad.Fail (MonadFail)
+#endif
 
 import Data.ASN1.Types
 import Data.ByteString (ByteString)

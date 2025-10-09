@@ -8,6 +8,7 @@
 -- Personal Information Exchange Syntax, aka PKCS #12.
 --
 -- Only password integrity mode and password privacy modes are supported.
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -78,7 +79,9 @@ import qualified Data.ByteArray as B
 import qualified Data.ByteString as BS
 import           Data.List (partition)
 import           Data.Maybe (isJust, fromMaybe, mapMaybe)
+#if !(MIN_VERSION_base(4,11,0))
 import           Data.Semigroup
+#endif
 import           Data.String (fromString)
 import qualified Data.X509 as X509
 import qualified Data.X509.Validation as X509

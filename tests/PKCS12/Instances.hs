@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Orphan instances.
 module PKCS12.Instances
@@ -10,7 +11,9 @@ module PKCS12.Instances
 
 import qualified Data.ByteArray as B
 import           Data.ByteString (ByteString)
+#if !(MIN_VERSION_base(4,11,0))
 import           Data.Semigroup
+#endif
 
 import Test.Tasty.QuickCheck
 

@@ -10,6 +10,7 @@
 --
 -- Should be used with a cipher from module "Crypto.Cipher.AES".
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 module Crypto.Store.KeyWrap.AES
     ( wrap
     , unwrap
@@ -20,7 +21,9 @@ module Crypto.Store.KeyWrap.AES
 import           Data.Bits
 import           Data.ByteArray (ByteArray, ByteArrayAccess, Bytes)
 import qualified Data.ByteArray as B
-import           Data.List
+#if !(MIN_VERSION_base(4,20,0))
+import           Data.List (foldl')
+#endif
 import           Data.Word
 
 import Crypto.Cipher.Types

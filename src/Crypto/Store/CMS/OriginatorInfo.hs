@@ -6,6 +6,7 @@
 -- Portability : unknown
 --
 --
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -24,7 +25,9 @@ import Control.Applicative
 
 import Data.ASN1.Types
 import Data.Maybe (fromMaybe)
+#if !(MIN_VERSION_base(4,11,0))
 import Data.Semigroup
+#endif
 import Data.X509
 
 import Crypto.Store.ASN1.Generate

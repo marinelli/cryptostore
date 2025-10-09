@@ -40,7 +40,9 @@ module Crypto.Store.ASN1.Parse
     ) where
 
 import Data.ASN1.Types
-import Data.Monoid
+#if !(MIN_VERSION_base(4,11,0))
+import Data.Monoid ( (<>) )
+#endif
 import Control.Applicative
 import Control.Arrow (first)
 import Control.Monad (MonadPlus(..), liftM2)

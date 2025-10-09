@@ -20,7 +20,9 @@ module Crypto.Store.Util
 import           Data.Bits
 import           Data.ByteArray (ByteArray, ByteArrayAccess)
 import qualified Data.ByteArray as B
-import           Data.List
+#if !(MIN_VERSION_base(4,20,0))
+import           Data.List (foldl')
+#endif
 import           Data.Memory.Endian
 import           Data.Word
 
