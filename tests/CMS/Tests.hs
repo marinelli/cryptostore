@@ -1,4 +1,5 @@
 -- | CMS tests.
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module CMS.Tests (cmsTests) where
 
 import Control.Monad

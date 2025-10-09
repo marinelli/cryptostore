@@ -1,4 +1,5 @@
 -- | PKCS #8 tests.
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module PKCS8.Tests (pkcs8Tests) where
 
 import qualified Data.ByteString as B

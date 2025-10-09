@@ -1,4 +1,5 @@
 -- | X.509 tests.
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module X509.Tests (x509Tests) where
 
 import qualified Data.ByteString as B
