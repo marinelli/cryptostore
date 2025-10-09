@@ -11,6 +11,7 @@ module CMS.Instances
 import           Data.ASN1.Types
 import qualified Data.ByteArray as B
 import           Data.ByteString (ByteString)
+import           Data.Maybe (fromJust)
 import           Data.X509
 
 import GHC.TypeLits
@@ -126,7 +127,7 @@ arbitraryAttributes = resize 3 arbitrary
 
 arbitraryNat :: Gen SomeNat
 arbitraryNat = unwrap <$> arbitrary
-  where unwrap (Positive i) = let Just n = someNatVal (127 + i) in n
+  where unwrap (Positive i) = let n = someNatVal (127 + i) in fromJust n
 
 instance Arbitrary DigestAlgorithm where
     arbitrary = oneof

@@ -6,6 +6,7 @@ module KeyWrap.RC2 (rc2kwTests) where
 
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import           Data.Maybe (fromJust)
 
 import Crypto.Cipher.Types
 import Crypto.Error
@@ -68,12 +69,11 @@ rc2kwTests =
     initCipher ekl k = throwCryptoError (rc2WithEffectiveKeyLength ekl k)
 
     wrapUnwrapProperty :: TestKey RC2 -> TestIV RC2 -> Message -> Gen Property
-    wrapUnwrapProperty (Key key) (IV ivBs) (Message msg) = do
+    wrapUnwrapProperty (Key key) iv (Message msg) = do
         ekl <- choose (1, 1024)
         let ctx = initCipher ekl key
-        wrapped <- wrap ctx iv msg
+        wrapped <- wrap ctx (unIV iv) msg
         return $ (wrapped >>= unwrap ctx) === Right msg
-      where Just iv = makeIV ivBs
 
     makeTest :: Integer -> Vector -> TestTree
     makeTest i Vector{..} =
@@ -82,7 +82,7 @@ rc2kwTests =
             , testCase "Unwrap" (unwrap ctx vecCiphertext @?= Right vecPlaintext)
             ]
       where ctx = initCipher vecEKL vecKey
-            Just iv = makeIV vecIV
+            iv = fromJust $ makeIV vecIV
             doWrap = wrap' Left withRandomPad
             withRandomPad f len
                 | B.length vecPad /= len = Left (InvalidInput "unexpected length")

@@ -15,6 +15,7 @@ module Crypto.Store.KeyWrap.TripleDES
 
 import           Data.ByteArray (ByteArray)
 import qualified Data.ByteArray as B
+import           Data.Maybe (fromJust)
 
 import Crypto.Cipher.Types
 import Crypto.Hash
@@ -40,7 +41,7 @@ wrap cipher iv cek
         (InvalidInput "KeyWrap.TripleDES: invalid length for content encryption key")
   where
     inLen    = B.length cek
-    Just iv' = makeIV iv4adda22c79e82105
+    iv'      = fromJust $ makeIV iv4adda22c79e82105
     cekicv   = B.append cek (checksum cek)
     temp1    = cbcEncrypt cipher iv cekicv
     temp2    = B.append (B.convert iv) temp1
@@ -56,11 +57,11 @@ unwrap cipher wrapped
     | otherwise                    = invalid
   where
     inLen         = B.length wrapped
-    Just iv'      = makeIV iv4adda22c79e82105
+    iv'           = fromJust $ makeIV iv4adda22c79e82105
     temp3         = cbcDecrypt cipher iv' wrapped
     temp2         = reverseBytes temp3
     (ivBs, temp1) = B.splitAt 8 temp2
-    Just iv       = makeIV ivBs
+    iv            = fromJust $ makeIV ivBs
     cekicv        = cbcDecrypt cipher iv temp1
     (cek, icv)    = B.splitAt 24 cekicv
     invalid       = Left BadChecksum

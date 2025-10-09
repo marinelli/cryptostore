@@ -16,6 +16,7 @@ module Crypto.Store.KeyWrap.RC2
 
 import           Data.ByteArray (ByteArray)
 import qualified Data.ByteArray as B
+import           Data.Maybe (fromJust)
 
 import Crypto.Cipher.Types
 import Crypto.Hash
@@ -62,7 +63,7 @@ wrap' failure withRandomPad cipher iv cek
             temp1      = cbcEncrypt cipher iv lcekpadicv
             temp2      = B.append (B.convert iv) temp1
             temp3      = reverseBytes temp2
-            Just iv'   = makeIV iv4adda22c79e82105
+            iv'        = fromJust $ makeIV iv4adda22c79e82105
          in cbcEncrypt cipher iv' temp3
 
 -- | Unwrap an encrypted RC2 key with the specified RC2 cipher.
@@ -75,14 +76,14 @@ unwrap cipher wrapped
     | otherwise          = invalid
   where
     inLen            = B.length wrapped
-    Just iv'         = makeIV iv4adda22c79e82105
+    iv'              = fromJust $ makeIV iv4adda22c79e82105
     temp3            = cbcDecrypt cipher iv' wrapped
     temp2            = reverseBytes temp3
     (ivBs, temp1)    = B.splitAt 8 temp2
-    Just iv          = makeIV ivBs
+    iv               = fromJust $ makeIV ivBs
     lcekpadicv       = cbcDecrypt cipher iv temp1
     (lcekpad, icv)   = B.splitAt (inLen - 16) lcekpadicv
-    Just (l, cekpad) = B.uncons lcekpad
+    (l, cekpad)      = fromJust $ B.uncons lcekpad
     len              = fromIntegral l
     padlen           = inLen - 16 - len - 1
     cek              = B.take len cekpad

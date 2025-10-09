@@ -8,13 +8,13 @@ module Util
     , getDetached
     , testFile
     , TestKey(..)
-    , TestIV(..)
+    , TestIV, unIV
     ) where
 
 import Control.Monad (when)
 
 import Data.ByteString (ByteString, pack)
-import Data.Maybe (isNothing)
+import Data.Maybe (fromJust, isNothing)
 
 import Crypto.Cipher.Types
 import Crypto.Store.CMS
@@ -41,14 +41,14 @@ getAttached e = do
     let m = fromAttached e
     when (isNothing m) $
         assertFailure "expecting attached but got detached content"
-    let Just r = m in return r
+    return $! fromJust m
 
 getDetached :: Encapsulates struct => a -> struct (Encap a) -> IO (struct a)
 getDetached c e = do
     let m = fromDetached c e
     when (isNothing m) $
         assertFailure "expecting detached but got attached content"
-    let Just r = m in return r
+    return $! fromJust m
 
 testFile :: String -> FilePath
 testFile name = "tests/files/" ++ name
@@ -64,6 +64,9 @@ instance Cipher cipher => Arbitrary (TestKey cipher) where
       where cipher = undefined :: cipher
 
 newtype TestIV cipher = IV ByteString deriving (Show, Eq)
+
+unIV :: BlockCipher cipher => TestIV cipher -> IV cipher
+unIV (IV ivBS) = fromJust $ makeIV ivBS
 
 instance BlockCipher cipher => Arbitrary (TestIV cipher) where
     arbitrary = IV . pack <$> vector (blockSize cipher)

@@ -5,6 +5,7 @@
 module KeyWrap.TripleDES (tripledeskwTests) where
 
 import Data.ByteString (ByteString, pack)
+import Data.Maybe (fromJust)
 
 import Crypto.Cipher.TripleDES
 import Crypto.Cipher.Types
@@ -62,10 +63,9 @@ testCipher vectors cipher =
     initCipher k = throwCryptoError (cipherInit k)
 
     wrapUnwrapProperty :: TestKey cipher -> TestIV cipher -> Message -> Property
-    wrapUnwrapProperty (Key key) (IV ivBs) (Message msg) =
-        (wrap ctx iv msg >>= unwrap ctx) === Right msg
+    wrapUnwrapProperty (Key key) iv (Message msg) =
+        (wrap ctx (unIV iv) msg >>= unwrap ctx) === Right msg
       where ctx = initCipher key
-            Just iv = makeIV ivBs
 
     makeTest :: Integer -> Vector -> TestTree
     makeTest i Vector{..} =
@@ -74,7 +74,7 @@ testCipher vectors cipher =
             , testCase "Unwrap" (unwrap ctx vecCiphertext @?= Right vecPlaintext)
             ]
       where ctx = initCipher vecKey
-            Just iv = makeIV vecIV
+            iv = fromJust $ makeIV vecIV
 
 tripledeskwTests :: TestTree
 tripledeskwTests = testGroup "KeyWrap.TripleDES"

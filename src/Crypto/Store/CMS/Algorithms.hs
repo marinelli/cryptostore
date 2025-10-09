@@ -98,7 +98,7 @@ import           Data.Bits
 import           Data.ByteArray (ByteArray, ByteArrayAccess)
 import qualified Data.ByteArray as B
 import           Data.ByteString (ByteString)
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromJust, fromMaybe)
 import           Data.Proxy
 import           Data.Word
 import qualified Data.X509 as X509
@@ -1129,7 +1129,7 @@ parseACEParameter (CCM c)      = onNextContainer Sequence $ do
     let ivlen = B.length iv
     when (ivlen < 7 || ivlen > 13) $
         throwParseError $ "Parsed invalid CCM nonce length: " ++ show ivlen
-    let Just l = fromL (15 - ivlen)
+    let l = fromJust $ fromL (15 - ivlen)
     m <- parseM
     return (ParamsCCM c (B.convert iv) m l)
 parseACEParameter (GCM c)      = onNextContainer Sequence $ do
@@ -1667,19 +1667,21 @@ wrapEncrypt encFn cipher iv input = do
     fn formatted =
         let firstPass = encFn cipher iv formatted
             lastBlock = B.dropView firstPass (B.length firstPass - sz)
-            Just iv'  = makeIV lastBlock
+            iv'       = fromJust $ makeIV lastBlock  -- wrapped length >= sz
          in encFn cipher iv' firstPass
 
 wrapDecrypt :: (BlockCipher cipher, ByteArray ba)
             => (cipher -> IV cipher -> ba -> ba)
             -> cipher -> IV cipher -> ba -> Either StoreError ba
-wrapDecrypt decFn cipher iv input = keyUnwrap (decFn cipher iv firstPass)
+wrapDecrypt decFn cipher iv input
+    | B.length beg < sz = Left (InvalidInput "wrapDecrypt: input too short")
+    | otherwise = keyUnwrap (decFn cipher iv firstPass)
   where
     sz = blockSize cipher
     (beg, lb) = B.splitAt (B.length input - sz) input
     lastBlock = decFn cipher iv' lb
-    Just iv'  = makeIV (B.dropView beg (B.length beg - sz))
-    Just iv'' = makeIV lastBlock
+    iv'       = fromJust $ makeIV (B.dropView beg (B.length beg - sz))
+    iv''      = fromJust $ makeIV lastBlock
     firstPass = decFn cipher iv'' beg `B.append` lastBlock
 
 
@@ -2041,8 +2043,8 @@ getRC2Cipher len key = fromCryptoFailable (rc2WithEffectiveKeyLength len key)
 ivGenerate :: (BlockCipher cipher, MonadRandom m) => cipher -> m (IV cipher)
 ivGenerate cipher = do
     bs <- getRandomBytes (blockSize cipher)
-    let Just iv = makeIV (bs :: ByteString)
-    return iv
+    let iv = makeIV (bs :: ByteString)
+    return $! fromJust iv
 
 nonceGenerate :: MonadRandom m => Int -> m B.Bytes
 nonceGenerate = getRandomBytes
