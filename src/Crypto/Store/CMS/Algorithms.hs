@@ -569,7 +569,7 @@ parseKMAC p' fn = do
     if b then parseParams else return (fn p' B.empty)
   where
     parseParams = onNextContainer Sequence $ parseBitLen $ \(SomeNat p) ->
-        getNext >>= \(OctetString str) -> return (fn p str)
+        fn p <$> parseOctetStringPrim
 
 instance HasKeySize MACAlgorithm where
     getKeySizeSpecifier (HMAC a) = KeySizeFixed (digestSizeFromProxy a)
