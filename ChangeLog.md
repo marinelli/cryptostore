@@ -1,6 +1,6 @@
 # Revision history for cryptostore
 
-## Unreleased
+## 0.4.0.0 - 2025-10-12
 
 * Private keys are now represented as type `KeyPair` defined in module
   `Crypto.Store.PKCS8` instead of `PrivKey`.  This ensures that the
