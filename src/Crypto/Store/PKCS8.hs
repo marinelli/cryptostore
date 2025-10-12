@@ -9,10 +9,11 @@
 --
 -- Presents an API similar to "Data.X509.Memory" and "Data.X509.File" but
 -- allows to write private keys and provides support for password-based
--- encryption.  Private keys are actually stored along with the corresponding
--- public key in a type 'KeyPair'.  'X509.PrivKey' and 'X509.PubKey' components
--- can be obtained by calling functions 'keyPairToPrivKey' and
--- 'keyPairToPubKey'.  Call function 'keyPairFromPrivKey' to build a 'KeyPair'.
+-- encryption.  Private keys are now stored along with the corresponding
+-- public key in a type 'KeyPair'.  Components of type 'X509.PrivKey' and
+--  'X509.PubKey' can be obtained through functions 'keyPairToPrivKey' and
+-- 'keyPairToPubKey'.  Function 'keyPairFromPrivKey' can be called to build a
+-- 'KeyPair'.
 --
 -- Functions to read a private key return an object wrapped in the
 -- 'OptProtected' data type.

@@ -27,7 +27,7 @@ import qualified Crypto.PubKey.Ed448 as Ed448
 
 import Crypto.Store.PKCS8.EC
 
--- | Holds a private and public key together, with guaranty that they both
+-- | Holds a private and public key together, with a guarantee that they both
 -- match.  Therefore no constructor is exposed.  Content may be accessed
 -- through functions 'keyPairToPrivKey' and 'keyPairToPubKey'.
 --
