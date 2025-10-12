@@ -2,6 +2,7 @@
 
 [![BSD](https://img.shields.io/badge/License-BSD-blue)](https://en.wikipedia.org/wiki/BSD_licenses)
 [![Haskell](https://img.shields.io/badge/Language-Haskell-lightgrey)](https://haskell.org/)
+[![Hackage](https://img.shields.io/hackage/v/cryptostore?label=Hackage&color=green)](https://hackage.haskell.org/package/cryptostore)
 
 This package allows to read and write cryptographic objects to/from ASN.1.
 
