@@ -139,7 +139,8 @@ readKeyFileFromMemory = either (const []) accumulate . pemParseBS
 accumulate :: [PEM] -> [OptProtected KeyPair]
 accumulate = rights . map pemToKey
 
--- | Read a private key from a 'PEM' element and add it to the accumulator list.
+-- | Read a private key from a t'PEM' element and add it to the accumulator
+-- list.
 --
 -- This API is modelled after the original @pemToKey@ in "Data.X509.Memory".
 pemToKeyAccum :: [Maybe (OptProtected KeyPair)] -> PEM -> [Maybe (OptProtected KeyPair)]
@@ -149,7 +150,7 @@ pemToKeyAccum acc pem =
         Left _                 -> Nothing : acc
         Right key              -> Just key : acc
 
--- | Read a private key from a 'PEM' element.
+-- | Read a private key from a t'PEM' element.
 pemToKey :: PEM -> Either StoreError (OptProtected KeyPair)
 pemToKey pem = do
     asn1 <- mapLeft DecodingError $ decodeASN1' BER (pemContent pem)

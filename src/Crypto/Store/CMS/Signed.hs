@@ -150,10 +150,10 @@ partitionHead p l =
         (x : _, r) -> Just (x, r)
         ([]   , _)    -> Nothing
 
--- | Function able to produce a 'SignerInfo'.
+-- | Function able to produce a t'SignerInfo'.
 type ProducerOfSI m = ContentType -> ByteString -> m (Either StoreError (SignerInfo, [CertificateChoice], [RevocationInfoChoice]))
 
--- | Function able to consume a 'SignerInfo'.
+-- | Function able to consume a t'SignerInfo'.
 type ConsumerOfSI m = ContentType -> ByteString -> SignerInfo -> [CertificateChoice] -> [RevocationInfoChoice] -> m Bool
 
 -- | Create a signer info with the specified signature algorithm and

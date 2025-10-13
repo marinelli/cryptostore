@@ -313,7 +313,7 @@ instance Monoid e => ParseASN1Object e MacData where
 
 -- AuthenticatedSafe
 
--- | PKCS #12 privacy wrapper, adding optional encryption to 'SafeContents'.
+-- | PKCS #12 privacy wrapper, adding optional encryption to t'SafeContents'.
 -- ASN.1 equivalent is @AuthenticatedSafe@.
 --
 -- The semigroup interface allows to combine multiple pieces encrypted
@@ -665,7 +665,7 @@ getInnerCredential l = SamePassword (fn <$> getAllSafeKeysId l)
                         pure (buildCertificateChain leaf certs, keyPairToPrivKey k)
     filterWithPrivKey = filter . keyPairMatchesCert
 
--- | Extract the private key and certificate chain from a 'PKCS12' value.  A
+-- | Extract the private key and certificate chain from a t'PKCS12' value.  A
 -- credential is returned when the structure contains exactly one private key
 -- and at least one X.509 certificate.
 toCredential :: PKCS12 -> OptProtected (Maybe (X509.CertificateChain, X509.PrivKey))
@@ -684,13 +684,13 @@ getInnerCredentialNamed name l = SamePassword (fn <$> getAllSafeKeys filtered)
         pure (buildCertificateChain leaf certs, keyPairToPrivKey k)
 
 -- | Extract a private key and certificate chain with the specified friendly
--- name from a 'PKCS12' value.  A credential is returned when the structure
+-- name from a t'PKCS12' value.  A credential is returned when the structure
 -- contains exactly one private key and one X.509 certificate with the name.
 toNamedCredential :: String -> PKCS12 -> OptProtected (Maybe (X509.CertificateChain, X509.PrivKey))
 toNamedCredential name p12 = unSamePassword $
     SamePassword (unPKCS12 p12) >>= getInnerCredentialNamed name
 
--- | Build a 'PKCS12' value containing a private key and certificate chain.
+-- | Build a t'PKCS12' value containing a private key and certificate chain.
 -- Distinct encryption is applied for both.  Encrypting the certificate chain is
 -- optional.
 --
@@ -703,7 +703,7 @@ fromCredential :: Maybe EncryptionScheme -- for certificates
                -> Either StoreError PKCS12
 fromCredential = fromCredential' id
 
--- | Build a 'PKCS12' value containing a private key and certificate chain
+-- | Build a t'PKCS12' value containing a private key and certificate chain
 -- identified with the specified friendly name.  Distinct encryption is applied
 -- for private key and certificates.  Encrypting the certificate chain is
 -- optional.

@@ -107,7 +107,7 @@ gNull = gOne Null
 gIntVal :: ASN1Elem e => Integer -> ASN1Stream e
 gIntVal = gOne . IntVal
 
--- | Generate an 'OID' ASN.1 element.
+-- | Generate an t'OID' ASN.1 element.
 gOID :: ASN1Elem e => OID -> ASN1Stream e
 gOID = gOne . OID
 

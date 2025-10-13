@@ -232,7 +232,7 @@ findRecipientEncryptedKey cert list = rekEncryptedKey <$> find fn list
                  KeyAgreeRecipientIASN iasn -> matchIASN iasn
                  KeyAgreeRecipientKI   ki   -> matchSKI (keyIdentifier ki)
 
--- | Additional information in a 'KeyIdentifier'.
+-- | Additional information in a t'KeyIdentifier'.
 data OtherKeyAttribute = OtherKeyAttribute
     { keyAttrId :: OID    -- ^ attribute identifier
     , keyAttr   :: [ASN1] -- ^ attribute value
@@ -309,7 +309,7 @@ data PasswordRecipientInfo = PasswordRecipientInfo
     }
     deriving (Show,Eq)
 
--- | Information for a recipient of an 'EnvelopedData'.  An element contains
+-- | Information for a recipient of an t'EnvelopedData'.  An element contains
 -- the content-encryption key in encrypted form.
 data RecipientInfo = KTRI KTRecipientInfo
                      -- ^ Recipient using key transport

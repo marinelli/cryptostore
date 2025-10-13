@@ -9,7 +9,7 @@
 -- with the following additions:
 --
 -- * Parsed stream is annotated, i.e. parser input is @('ASN1', e)@ instead of
---   @'ASN1'@.  Main motivation is to allow to parse a sequence of 'ASN1Repr'
+--   @'ASN1'@.  Main motivation is to allow to parse a sequence of @ASN1Repr@
 --   and hold the exact binary content that has been parsed.  As consequence,
 --   no @getObject@ function is provided.  Function 'withAnnotations' runs
 --   a parser and returns all annotations consumed in a monoid concatenation.

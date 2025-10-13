@@ -83,7 +83,7 @@ readPubKeyFileFromMemory = either (const []) accumulate . pemParseBS
 accumulate :: [PEM] -> [X509.PubKey]
 accumulate = rights . map pemToPubKey
 
--- | Read a public key from a 'PEM' element and add it to the accumulator list.
+-- | Read a public key from a t'PEM' element and add it to the accumulator list.
 --
 -- This API is modelled after function @pemToKey@ in "Data.X509.Memory".
 pemToPubKeyAccum :: [Maybe X509.PubKey] -> PEM -> [Maybe X509.PubKey]
@@ -93,7 +93,7 @@ pemToPubKeyAccum acc pem =
         Left _                 -> Nothing : acc
         Right pubKey           -> Just pubKey : acc
 
--- | Read a public key from a 'PEM' element.
+-- | Read a public key from a t'PEM' element.
 pemToPubKey :: PEM -> Either StoreError X509.PubKey
 pemToPubKey pem = do
     asn1 <- mapLeft DecodingError $ decodeASN1' BER (pemContent pem)

@@ -44,13 +44,13 @@ accumulate = rights . map pemToContentInfo
 berToContentInfo :: B.ByteString -> Either StoreError ContentInfo
 berToContentInfo = decodeASN1Object
 
--- | Read a content info from a 'PEM' element and add it to the accumulator
+-- | Read a content info from a t'PEM' element and add it to the accumulator
 -- list.
 pemToContentInfoAccum :: [Maybe ContentInfo] -> PEM -> [Maybe ContentInfo]
 pemToContentInfoAccum acc pem =
     either (const Nothing) Just (pemToContentInfo pem) : acc
 
--- | Read a content info from a 'PEM' element.
+-- | Read a content info from a t'PEM' element.
 pemToContentInfo :: PEM -> Either StoreError ContentInfo
 pemToContentInfo pem
     | pemName pem `elem` names = berToContentInfo (pemContent pem)
