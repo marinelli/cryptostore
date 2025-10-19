@@ -159,13 +159,13 @@ pemToKey pem = do
 
   where
     allTypes  = unFormat <$> parse
-    rsa       = keyPairFromPrivKey . X509.PrivKeyRSA . unFormat <$> parse
-    dsa       = KeyPairDSA . unFormat <$> parse
-    ecdsa     = keyPairFromPrivKey . X509.PrivKeyEC . unFormat <$> parse
-    x25519    = keyPairFromPrivKey . X509.PrivKeyX25519 <$> parseModern
-    x448      = keyPairFromPrivKey . X509.PrivKeyX448 <$> parseModern
-    ed25519   = keyPairFromPrivKey . X509.PrivKeyEd25519 <$> parseModern
-    ed448     = keyPairFromPrivKey . X509.PrivKeyEd448 <$> parseModern
+    rsa       = parseFormattedKeyPair (keyPairFromPrivKey . X509.PrivKeyRSA)
+    dsa       = parseFormattedKeyPair KeyPairDSA
+    ecdsa     = parseFormattedKeyPair (keyPairFromPrivKey . X509.PrivKeyEC)
+    x25519    = parseModern (keyPairFromPrivKey . X509.PrivKeyX25519)
+    x448      = parseModern (keyPairFromPrivKey . X509.PrivKeyX448)
+    ed25519   = parseModern (keyPairFromPrivKey . X509.PrivKeyEd25519)
+    ed448     = parseModern (keyPairFromPrivKey . X509.PrivKeyEd448)
     encrypted = inner . decrypt <$> parse
 
     getParser "PRIVATE KEY"           = return (Unprotected <$> allTypes)
@@ -239,17 +239,16 @@ traditionalPrivKeyASN1S keyPair =
         KeyPairRSA k _ -> ("RSA", traditional k)
         KeyPairDSA p   -> ("DSA", traditional p)
         KeyPairEC  k _ -> ("EC",  traditional k)
-        KeyPairX25519  k _ -> ("X25519",  tradModern k)
-        KeyPairX448    k _ -> ("X448",    tradModern k)
-        KeyPairEd25519 k _ -> ("ED25519", tradModern k)
-        KeyPairEd448   k _ -> ("ED448",   tradModern k)
+        KeyPairX25519  k _ -> ("X25519",  modernASN1S k)
+        KeyPairX448    k _ -> ("X448",    modernASN1S k)
+        KeyPairEd25519 k _ -> ("ED25519", modernASN1S k)
+        KeyPairEd448   k _ -> ("ED448",   modernASN1S k)
   where
     traditional a = asn1s (Traditional a)
-    tradModern a  = asn1s (Modern [] a)
 
 keyToModernPEM :: KeyPair -> PEM
 keyToModernPEM keyPair = mkPEM "PRIVATE KEY" (encodeASN1S asn1)
-  where asn1 = modernPrivKeyASN1S [] keyPair
+  where asn1 = modernASN1S keyPair
 
 modernPrivKeyASN1S :: ASN1Elem e => [Attribute] -> KeyPair -> ASN1Stream e
 modernPrivKeyASN1S attrs keyPair =
@@ -294,8 +293,11 @@ data Modern a = Modern [Attribute] a
 instance Functor Modern where
     fmap f (Modern attrs a) = Modern attrs (f a)
 
-parseModern :: ParseASN1Object e (Modern a) => ParseASN1 e a
-parseModern = unModern <$> parse
+modernASN1S :: ProduceASN1Object e (Modern a) => a -> ASN1Stream e
+modernASN1S a = asn1s (Modern [] a)
+
+parseModern :: ParseASN1Object e (Modern b) => (b -> a) -> ParseASN1 e a
+parseModern mapFn = mapFn . unModern <$> parse
   where unModern (Modern _ a) = a
 
 -- | A key associated with format.  Allows to implement 'ASN1Object' instances.
@@ -305,15 +307,33 @@ data FormattedKey a = FormattedKey PrivateKeyFormat a
 instance Functor FormattedKey where
     fmap f (FormattedKey fmt a) = FormattedKey fmt (f a)
 
-instance (ProduceASN1Object e (Traditional a), ProduceASN1Object e (Modern a)) => ProduceASN1Object e (FormattedKey a) where
-    asn1s (FormattedKey TraditionalFormat k) = asn1s (Traditional k)
-    asn1s (FormattedKey PKCS8Format k)       = asn1s (Modern [] k)
+instance ASN1Elem e => ProduceASN1Object e (FormattedKey KeyPair) where
+    asn1s = formattedASN1S
 
-instance (Monoid e, ParseASN1Object e (Traditional a), ParseASN1Object e (Modern a)) => ParseASN1Object e (FormattedKey a) where
-    parse = (modern <$> parseModern) <|> (traditional <$> parseTraditional)
-      where
-        traditional = FormattedKey TraditionalFormat
-        modern      = FormattedKey PKCS8Format
+instance Monoid e => ParseASN1Object e (FormattedKey KeyPair) where
+    parse = parseFormatted
+
+formattedASN1S :: (ProduceASN1Object e (Traditional a), ProduceASN1Object e (Modern a))
+               => FormattedKey a -> ASN1Stream e
+formattedASN1S (FormattedKey TraditionalFormat k) = asn1s (Traditional k)
+formattedASN1S (FormattedKey PKCS8Format k) = modernASN1S k
+
+parseFormattedKeyPair :: ParseASN1Object e (Modern a)
+                      => (a -> KeyPair) -> ParseASN1 e KeyPair
+parseFormattedKeyPair mapFn = unFormat <$> parseFormattedInternal mapFn
+
+parseFormatted :: (ParseASN1Object e (Traditional a), ParseASN1Object e (Modern a))
+               => ParseASN1 e (FormattedKey a)
+parseFormatted = parseFormattedInternal id
+
+parseFormattedInternal :: (ParseASN1Object e (Traditional a), ParseASN1Object e (Modern b))
+                       => (b -> a) -> ParseASN1 e (FormattedKey a)
+parseFormattedInternal mapFn =
+    (modern <$> parseModern mapFn) <|>
+    (traditional <$> parseTraditional)
+  where
+    traditional = FormattedKey TraditionalFormat
+    modern      = FormattedKey PKCS8Format
 
 unFormat :: FormattedKey a -> a
 unFormat (FormattedKey _ a) = a
@@ -357,8 +377,8 @@ instance Monoid e => ParseASN1Object e (Modern KeyPair) where
 -- RSA
 
 instance ASN1Object (FormattedKey RSA.PrivateKey) where
-    toASN1   = asn1s
-    fromASN1 = runParseASN1State parse
+    toASN1   = formattedASN1S
+    fromASN1 = runParseASN1State parseFormatted
 
 instance ASN1Elem e => ProduceASN1Object e (Traditional RSA.PrivateKey) where
     asn1s (Traditional privKey) =
@@ -428,8 +448,8 @@ instance Monoid e => ParseASN1Object e (Modern RSA.PrivateKey) where
 -- DSA
 
 instance ASN1Object (FormattedKey DSA.KeyPair) where
-    toASN1   = asn1s
-    fromASN1 = runParseASN1State parse
+    toASN1   = formattedASN1S
+    fromASN1 = runParseASN1State parseFormatted
 
 instance ASN1Elem e => ProduceASN1Object e (Traditional DSA.KeyPair) where
     asn1s (Traditional (DSA.KeyPair params pub priv)) =
@@ -492,8 +512,8 @@ parsePQG = do
 -- ECDSA
 
 instance ASN1Object (FormattedKey X509.PrivKeyEC) where
-    toASN1   = asn1s
-    fromASN1 = runParseASN1State parse
+    toASN1   = formattedASN1S
+    fromASN1 = runParseASN1State parseFormatted
 
 instance ASN1Elem e => ProduceASN1Object e (Traditional X509.PrivKeyEC) where
     asn1s = innerEcdsaASN1S True . unTraditional
