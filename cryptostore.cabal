@@ -64,7 +64,7 @@ library
                      , memory
                      , pem >= 0.1 && < 0.3
                      , asn1-types >= 0.3.1 && < 0.4
-                     , asn1-encoding >= 0.9 && < 0.10
+                     , asn1-encoding >= 0.9.6 && < 0.10
                      , hourglass >= 0.2
   if flag(use_crypton)
     build-depends:     crypton

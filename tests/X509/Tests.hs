@@ -44,6 +44,12 @@ keyTests name prefix count =
     fCert = testFile (prefix ++ "-self-signed-cert.pem")
     fKey  = testFile (prefix ++ "-public.pem")
 
+rfc8410Tests :: TestTree
+rfc8410Tests = testCase "rfc8410" $ do
+    keys <- readPubKeyFile path
+    length keys @?= 1
+  where path = testFile "rfc8410.pem"
+
 propertyTests :: TestTree
 propertyTests = localOption (QuickCheckMaxSize 5) $ testGroup "properties"
     [ testProperty "marshalling public keys" $ \keys ->
@@ -71,5 +77,6 @@ x509Tests =
         , keyTests "X448"                       "x448"       1
         , keyTests "Ed25519"                    "ed25519"    1
         , keyTests "Ed448"                      "ed448"      1
+        , rfc8410Tests
         , propertyTests
         ]

@@ -14,13 +14,14 @@ compiler: ghc-9.10 lts-24.12
 
 # options
 option: x509min extradep=basement-0.0.7 extradep=foundation-0.0.20 extradep=memory-0.14.18 extradep=cryptonite-0.26 extradep=x509-1.7.5
+option: asn1min extradep=asn1-encoding-0.9.6
 option: cryptomin extradep=cryptonite-0.26
 option: x509max extradep=x509-1.7.7 extradep=x509-store-1.6.9 extradep=x509-validation-1.6.12
 
 # builds
-build: ghc-8.0 x509min
-build: ghc-8.2 x509min
-build: ghc-8.4 cryptomin
+build: ghc-8.0 x509min asn1min
+build: ghc-8.2 x509min asn1min
+build: ghc-8.4 cryptomin asn1min
 build: ghc-8.6 cryptomin
 build: ghc-8.8
 build: ghc-8.10 os=linux,osx

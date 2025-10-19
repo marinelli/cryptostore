@@ -95,6 +95,12 @@ testType name ty prefix =
         , encryptedKeyTests prefix
         ]
 
+rfc8410Tests :: TestTree
+rfc8410Tests = testCase "rfc8410" $ do
+    keys <- readKeyFile path
+    length keys @?= 2
+  where path = testFile "rfc8410.pem"
+
 propertyTests :: TestTree
 propertyTests = localOption (QuickCheckMaxSize 5) $ testGroup "properties"
     [ testProperty "marshalling" $ \fmt l ->
@@ -117,5 +123,6 @@ pkcs8Tests =
         , testType "X448"                       OnlyOuter   "x448"
         , testType "Ed25519"                    OnlyOuter   "ed25519"
         , testType "Ed448"                      OnlyOuter   "ed448"
+        , rfc8410Tests
         , propertyTests
         ]

@@ -1,5 +1,10 @@
 # Revision history for cryptostore
 
+## Unreleased
+
+* Decoding private keys in `Crypto.Store.PKCS8` is now more strict and makes
+  sure that the optional public key matches the private key when present.
+
 ## 0.4.0.0 - 2025-10-12
 
 * Private keys are now represented as type `KeyPair` defined in module
