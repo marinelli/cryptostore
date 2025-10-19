@@ -58,7 +58,7 @@ module Crypto.Store.PKCS8
     ) where
 
 import Control.Applicative
-import Control.Monad (void, when)
+import Control.Monad (when)
 
 import Data.ASN1.Types
 import Data.ASN1.BinaryEncoding
@@ -413,11 +413,11 @@ instance ASN1Elem e => ProduceASN1Object e (Modern RSA.PrivateKey) where
 
 instance Monoid e => ParseASN1Object e (Modern RSA.PrivateKey) where
     parse = onNextContainer Sequence $ do
-        skipVersion
+        v2 <- parseVersion
         Null <- onNextContainer Sequence $ do
                     OID [1,2,840,113549,1,1,1] <- getNext
                     getNext
-        (attrs, bs) <- parseAttrKeys
+        (attrs, bs) <- parseAttrKeys v2
         let inner = decodeASN1' BER bs
             strError = Left .  ("PKCS8: error decoding inner RSA: " ++) . show
         case either strError (runParseASN1 parseTraditional) inner of
@@ -460,11 +460,11 @@ instance ASN1Elem e => ProduceASN1Object e (Modern DSA.KeyPair) where
 
 instance Monoid e => ParseASN1Object e (Modern DSA.KeyPair) where
     parse = onNextContainer Sequence $ do
-        skipVersion
+        v2 <- parseVersion
         params <- onNextContainer Sequence $ do
                       OID [1,2,840,10040,4,1] <- getNext
                       onNextContainer Sequence parsePQG
-        (attrs, bs) <- parseAttrKeys
+        (attrs, bs) <- parseAttrKeys v2
         case decodeASN1' BER bs of
             Right [IntVal priv] ->
                 let pub = DSA.calculatePublic params priv
@@ -513,11 +513,11 @@ instance ASN1Elem e => ProduceASN1Object e (Modern X509.PrivKeyEC) where
 
 instance Monoid e => ParseASN1Object e (Modern X509.PrivKeyEC) where
     parse = onNextContainer Sequence $ do
-        skipVersion
+        v2 <- parseVersion
         f <- onNextContainer Sequence $ do
             OID [1,2,840,10045,2,1] <- getNext
             parseCurveFn
-        (attrs, bs) <- parseAttrKeys
+        (attrs, bs) <- parseAttrKeys v2
         let inner = decodeASN1' BER bs
             strError = Left .  ("PKCS8: error decoding inner EC: " ++) . show
         case either strError (runParseASN1 $ parseInnerEcdsa $ Just f) inner of
@@ -672,12 +672,12 @@ innerEddsaASN1S key = gOctetString (encodeASN1S inner)
 
 parseModernEddsa :: Monoid e => String -> OID -> (B.ByteString -> CryptoFailable a) -> ParseASN1 e (Modern a)
 parseModernEddsa name expectedOid buildKey = onNextContainer Sequence $ do
-  skipVersion
+  v2 <- parseVersion
   onNextContainer Sequence $ do
     OID oid <- getNext
     when (oid /= expectedOid) $
       throwParseError ("PKCS8: while parsing " ++ name ++ " expected OID " ++ show expectedOid ++ " while got " ++ show oid)
-  (attrs, bs) <- parseAttrKeys
+  (attrs, bs) <- parseAttrKeys v2
   Modern attrs <$> parseInnerEddsa name buildKey bs
 
 parseInnerEddsa :: Monoid e
@@ -699,21 +699,26 @@ parseInnerEddsa name buildKey input =
             CryptoFailed _       ->
                 throwParseError ("PKCS8: parsed invalid " ++ name ++ " secret key")
 
-skipVersion :: Monoid e => ParseASN1 e ()
-skipVersion = do
+parseVersion :: Monoid e => ParseASN1 e Bool
+parseVersion = do
     IntVal v <- getNext
     when (v /= 0 && v /= 1) $
         throwParseError ("PKCS8: parsed invalid version: " ++ show v)
+    return (v /= 0)
+
+parsePublicKey :: Monoid e => ParseASN1 e (Maybe B.ByteString)
+parsePublicKey = fmap Just parseTaggedPrimitive <|> return Nothing
+  where parseTaggedPrimitive = do { Other _ 1 bs <- getNext; return bs }
 
 -- todo: ideally should not skip but parse the public key and verify that it
 -- is consistent with the private key
-skipPublicKey :: Monoid e => ParseASN1 e ()
-skipPublicKey = void (fmap Just parseTaggedPrimitive <|> return Nothing)
-  where parseTaggedPrimitive = do { Other _ 1 bs <- getNext; return bs }
-
-parseAttrKeys :: Monoid e => ParseASN1 e ([Attribute], B.ByteString)
-parseAttrKeys = do
+parseAttrKeys :: Monoid e
+              => Bool
+              -> ParseASN1 e ([Attribute], B.ByteString)
+parseAttrKeys v2 = do
     OctetString bs <- getNext
     attrs <- parseAttributes (Container Context 0)
-    skipPublicKey
+    mPub <- parsePublicKey
+    when (isJust mPub && not v2) $
+        throwParseError "PKCS8: public key allowed only for version 2"
     return (attrs, bs)
