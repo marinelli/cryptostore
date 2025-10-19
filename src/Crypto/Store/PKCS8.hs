@@ -405,11 +405,11 @@ instance ASN1Elem e => ProduceASN1Object e (Modern RSA.PrivateKey) where
     asn1s (Modern attrs privKey) =
         asn1Container Sequence (v . alg . bs . att)
       where
-        v     = gIntVal 0
+        v     = versionASN1S
         alg   = asn1Container Sequence (oid . gNull)
         oid   = gOID [1,2,840,113549,1,1,1]
         bs    = gOctetString (encodeASN1Object $ Traditional privKey)
-        att   = attributesASN1S (Container Context 0) attrs
+        att   = attrKeysASN1S attrs
 
 instance Monoid e => ParseASN1Object e (Modern RSA.PrivateKey) where
     parse = onNextContainer Sequence $ do
@@ -451,12 +451,12 @@ instance ASN1Elem e => ProduceASN1Object e (Modern DSA.KeyPair) where
     asn1s (Modern attrs (DSA.KeyPair params _ priv)) =
         asn1Container Sequence (v . alg . bs . att)
       where
-        v     = gIntVal 0
+        v     = versionASN1S
         alg   = asn1Container Sequence (oid . pr)
         oid   = gOID [1,2,840,10040,4,1]
         pr    = asn1Container Sequence (pqgASN1S params)
         bs    = gOctetString (encodeASN1S $ gIntVal priv)
-        att   = attributesASN1S (Container Context 0) attrs
+        att   = attrKeysASN1S attrs
 
 instance Monoid e => ParseASN1Object e (Modern DSA.KeyPair) where
     parse = onNextContainer Sequence $ do
@@ -504,12 +504,12 @@ instance Monoid e => ParseASN1Object e (Traditional X509.PrivKeyEC) where
 instance ASN1Elem e => ProduceASN1Object e (Modern X509.PrivKeyEC) where
     asn1s (Modern attrs privKey) = asn1Container Sequence (v . f . bs . att)
       where
-        v     = gIntVal 0
+        v     = versionASN1S
         f     = asn1Container Sequence (oid . curveFnASN1S privKey)
         oid   = gOID [1,2,840,10045,2,1]
         bs    = gOctetString (encodeASN1S inner)
         inner = innerEcdsaASN1S False privKey
-        att   = attributesASN1S (Container Context 0) attrs
+        att   = attrKeysASN1S attrs
 
 instance Monoid e => ParseASN1Object e (Modern X509.PrivKeyEC) where
     parse = onNextContainer Sequence $ do
@@ -659,10 +659,10 @@ instance Monoid e => ParseASN1Object e (Modern Ed448.SecretKey) where
 produceModernEddsa :: (ASN1Elem e, ByteArrayAccess key) => OID -> Modern key -> ASN1Stream e
 produceModernEddsa oid (Modern attrs privKey) = asn1Container Sequence (v . alg . bs . att)
   where
-    v     = gIntVal 0
+    v     = versionASN1S
     alg   = asn1Container Sequence (gOID oid)
     bs    = innerEddsaASN1S privKey
-    att   = attributesASN1S (Container Context 0) attrs
+    att   = attrKeysASN1S attrs
 
 innerEddsaASN1S :: (ASN1Elem e, ByteArrayAccess key) => key -> ASN1Stream e
 innerEddsaASN1S key = gOctetString (encodeASN1S inner)
@@ -699,6 +699,9 @@ parseInnerEddsa name buildKey input =
             CryptoFailed _       ->
                 throwParseError ("PKCS8: parsed invalid " ++ name ++ " secret key")
 
+versionASN1S :: ASN1Elem e => ASN1Stream e
+versionASN1S = gIntVal 0
+
 parseVersion :: Monoid e => ParseASN1 e Bool
 parseVersion = do
     IntVal v <- getNext
@@ -709,6 +712,9 @@ parseVersion = do
 parsePublicKey :: Monoid e => ParseASN1 e (Maybe B.ByteString)
 parsePublicKey = fmap Just parseTaggedPrimitive <|> return Nothing
   where parseTaggedPrimitive = do { Other _ 1 bs <- getNext; return bs }
+
+attrKeysASN1S :: ASN1Elem e => [Attribute] -> ASN1Stream e
+attrKeysASN1S = attributesASN1S (Container Context 0)
 
 -- todo: ideally should not skip but parse the public key and verify that it
 -- is consistent with the private key
