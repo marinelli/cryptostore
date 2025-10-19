@@ -118,14 +118,13 @@ data SignerIdentifier
 
 instance ASN1Elem e => ProduceASN1Object e SignerIdentifier where
     asn1s (SignerIASN iasn) = asn1s iasn
-    asn1s (SignerSKI  ski)  = asn1Container (Container Context 0)
-                                  (gOctetString ski)
+    asn1s (SignerSKI  ski)  = gMany [Other Context 0 ski]
 
 instance Monoid e => ParseASN1Object e SignerIdentifier where
     parse = parseIASN <|> parseSKI
       where parseIASN = SignerIASN <$> parse
             parseSKI  = SignerSKI  <$>
-                onNextContainer (Container Context 0) parseOctetStringPrim
+                do { Other Context 0 bs <- getNext; return bs }
 
 -- | Try to find a certificate with the specified identifier.
 findSigner :: SignerIdentifier

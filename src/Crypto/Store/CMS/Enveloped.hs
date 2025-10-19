@@ -96,14 +96,13 @@ data RecipientIdentifier
 
 instance ASN1Elem e => ProduceASN1Object e RecipientIdentifier where
     asn1s (RecipientIASN iasn) = asn1s iasn
-    asn1s (RecipientSKI  ski)  = asn1Container (Container Context 0)
-                                    (gOctetString ski)
+    asn1s (RecipientSKI  ski)  = gMany [Other Context 0 ski]
 
 instance Monoid e => ParseASN1Object e RecipientIdentifier where
     parse = parseIASN <|> parseSKI
       where parseIASN = RecipientIASN <$> parse
             parseSKI  = RecipientSKI  <$>
-                onNextContainer (Container Context 0) parseOctetStringPrim
+                do { Other Context 0 bs <- getNext; return bs }
 
 getKTVersion :: RecipientIdentifier -> Integer
 getKTVersion (RecipientIASN _) = 0
@@ -168,8 +167,7 @@ data OriginatorIdentifierOrKey
 
 instance ASN1Elem e => ProduceASN1Object e OriginatorIdentifierOrKey where
     asn1s (OriginatorIASN iasn)   = asn1s iasn
-    asn1s (OriginatorSKI  ski)    = asn1Container (Container Context 0)
-                                       (gOctetString ski)
+    asn1s (OriginatorSKI  ski)    = gMany [Other Context 0 ski]
     asn1s (OriginatorPublic pub)  =
         originatorPublicKeyASN1S (Container Context 1) pub
 
@@ -177,7 +175,7 @@ instance Monoid e => ParseASN1Object e OriginatorIdentifierOrKey where
     parse = parseIASN <|> parseSKI <|> parsePublic
       where parseIASN = OriginatorIASN <$> parse
             parseSKI  = OriginatorSKI  <$>
-                onNextContainer (Container Context 0) parseOctetStringPrim
+                do { Other Context 0 bs <- getNext; return bs }
             parsePublic  = OriginatorPublic <$>
                 parseOriginatorPublicKey (Container Context 1)
 
@@ -189,14 +187,13 @@ data KeyAgreeRecipientIdentifier
 
 instance ASN1Elem e => ProduceASN1Object e KeyAgreeRecipientIdentifier where
     asn1s (KeyAgreeRecipientIASN iasn) = asn1s iasn
-    asn1s (KeyAgreeRecipientKI   ki)   = asn1Container (Container Context 0)
-                                            (asn1s ki)
+    asn1s (KeyAgreeRecipientKI   ki)   = keyIdentifierASN1S (Container Context 0) ki
 
 instance Monoid e => ParseASN1Object e KeyAgreeRecipientIdentifier where
     parse = parseIASN <|> parseKI
       where parseIASN = KeyAgreeRecipientIASN <$> parse
             parseKI   = KeyAgreeRecipientKI   <$>
-                onNextContainer (Container Context 0) parse
+                parseKeyIdentifier (Container Context 0)
 
 -- | Encrypted key for a recipient in a key-agreement RI.
 data RecipientEncryptedKey = RecipientEncryptedKey
@@ -258,23 +255,26 @@ data KeyIdentifier = KeyIdentifier
     }
     deriving (Show,Eq)
 
-instance ASN1Elem e => ProduceASN1Object e KeyIdentifier where
-    asn1s KeyIdentifier{..} = asn1Container Sequence (keyId . date . other)
-      where
-        keyId = gOctetString keyIdentifier
-        date  = optASN1S keyDate $ \v -> gASN1Time TimeGeneralized v Nothing
-        other = optASN1S keyOther asn1s
+keyIdentifierASN1S :: ASN1Elem e
+                   => ASN1ConstructionType -> KeyIdentifier -> ASN1Stream e
+keyIdentifierASN1S ty KeyIdentifier{..} =
+    asn1Container ty (keyId . date . other)
+  where
+    keyId = gOctetString keyIdentifier
+    date  = optASN1S keyDate $ \v -> gASN1Time TimeGeneralized v Nothing
+    other = optASN1S keyOther asn1s
 
-instance Monoid e => ParseASN1Object e KeyIdentifier where
-    parse = onNextContainer Sequence $ do
-        OctetString keyId <- getNext
-        date <- getNextMaybe dateTimeOrNothing
-        b <- hasNext
-        other <- if b then Just <$> parse else return Nothing
-        return KeyIdentifier { keyIdentifier = keyId
-                             , keyDate = date
-                             , keyOther = other
-                             }
+parseKeyIdentifier :: Monoid e
+                   => ASN1ConstructionType -> ParseASN1 e KeyIdentifier
+parseKeyIdentifier ty = onNextContainer ty $ do
+    OctetString keyId <- getNext
+    date <- getNextMaybe dateTimeOrNothing
+    b <- hasNext
+    other <- if b then Just <$> parse else return Nothing
+    return KeyIdentifier { keyIdentifier = keyId
+                         , keyDate = date
+                         , keyOther = other
+                         }
 
 -- | Recipient using key transport.
 data KTRecipientInfo = KTRecipientInfo
@@ -346,7 +346,7 @@ instance ASN1Elem e => ProduceASN1Object e RecipientInfo where
         asn1Container (Container Context 2) (ver . kid . kep . ek)
       where
         ver = gIntVal 4
-        kid = asn1s kekId
+        kid = keyIdentifierASN1S Sequence kekId
         kep = algorithmASN1S Sequence kekKeyEncryptionParams
         ek  = gOctetString kekEncryptedKey
 
@@ -395,7 +395,7 @@ instance Monoid e => ParseASN1Object e RecipientInfo where
 
         parseKEK = KEKRI <$> do
             IntVal 4 <- getNext
-            kid <- parse
+            kid <- parseKeyIdentifier Sequence
             kep <- parseAlgorithm Sequence
             OctetString ek <- getNext
             return KEKRecipientInfo { kekId = kid
