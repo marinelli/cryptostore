@@ -22,7 +22,9 @@
 -- * <https://tools.ietf.org/html/rfc8418 RFC 8418>: Use of the Elliptic Curve Diffie-Hellman Key Agreement Algorithm with X25519 and X448 in the Cryptographic Message Syntax (CMS)
 -- * <https://tools.ietf.org/html/rfc8419 RFC 8419>: Use of Edwards-Curve Digital Signature Algorithm (EdDSA) Signatures in the Cryptographic Message Syntax (CMS)
 -- * <https://tools.ietf.org/html/rfc8702 RFC 8702>: Use of the SHAKE One-Way Hash Functions in the Cryptographic Message Syntax (CMS)
+-- * <https://tools.ietf.org/html/rfc9629 RFC 9629>: Using Key Encapsulation Mechanism (KEM) Algorithms in the Cryptographic Message Syntax (CMS)
 -- * <https://tools.ietf.org/html/rfc9688 RFC 9688>: Use of the SHA3 One-Way Hash Functions in the Cryptographic Message Syntax (CMS)
+-- * <https://tools.ietf.org/html/rfc9690 RFC 9690>: Use of the RSA-KEM Algorithm in the Cryptographic Message Syntax (CMS)
 -- * <https://tools.ietf.org/html/rfc9709 RFC 9709>: Encryption Key Derivation in the Cryptographic Message Syntax (CMS) Using HKDF with SHA-256
 {-# LANGUAGE RecordWildCards #-}
 module Crypto.Store.CMS
@@ -64,6 +66,7 @@ module Crypto.Store.CMS
     , KeyTransportParams(..)
     , KeyAgreementParams(..)
     , KeyAgreementKDF(..)
+    , KeyEncapsulationMechanism(..)
     , RecipientInfo(..)
     , EnvelopedData(..)
     , ProducerOfRI
@@ -95,6 +98,10 @@ module Crypto.Store.CMS
     , PasswordRecipientInfo(..)
     , forPasswordRecipient
     , withRecipientPassword
+     -- ** Key Encapsulation recipients
+    , KEMRecipientInfo(..)
+    , forKeyEncapRecipient
+    , withRecipientKeyEncap
     -- * Digested data
     , DigestProxy(..)
     , DigestAlgorithm(..)
@@ -141,6 +148,7 @@ module Crypto.Store.CMS
     , generateSalt
     , KeyDerivationFunc(..)
     , PBKDF2_PRF(..)
+    , KeyDerivationFn(..)
     -- * Secret-key algorithms
     , HasKeySize(..)
     , generateKey

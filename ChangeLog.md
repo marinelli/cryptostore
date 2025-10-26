@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Added support for key encapsulation to CMS, aka KEMRecipientInfo.  The only
+  mechanism implemented for now is RSA-KEM.
+
 * Decoding private keys in `Crypto.Store.PKCS8` is now more strict and makes
   sure that the optional public key matches the private key when present.
 

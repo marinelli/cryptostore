@@ -346,6 +346,64 @@ and certificate, then verify the signature and recover the content.
 Right (DataCI "Some trustworthy content")
 ```
 
+### Authenticated-enveloped data
+
+The following examples generate a CMS structure auth-enveloping some data to a
+KEM recipient, then decrypt the data to recover the content.
+
+#### Generating authenticated-enveloped data
+
+```haskell
+> :set -XOverloadedStrings
+> :m Crypto.Store.CMS Data.X509 Crypto.Store.X509
+
+-- Input content info
+> let info = DataCI "Powered by Haskell"
+
+-- Read receipient certificate
+> [cert] <- readSignedObject "/path/to/cert.pem" :: IO [SignedCertificate]
+
+-- Content encryption will use AES-128-GCM, and we protect against manipulation
+-- of algorithm identifiers as defined in RFC 9709
+> aceParams' <- generateGCMParams AES128 16
+> let aceParams = authDeriveEncryptionKey aceParams'
+> aceKey <- generateKey aceParams :: IO ContentEncryptionKey
+
+-- Encrypt the Content Encryption Key with a KEM Recipient Info,
+-- i.e. a KDF will derive the Key Encryption Key from a shared secret produced
+-- by a Key Encapsulation Mechanism.  We are using RSA-KEM based on KDF3 with
+-- SHA-256 to produce a 16-byte shared secret.  Further derivation of the KEK
+-- uses HKDF with SHA-256.  The CEK is finally wrapped with AES-Wrap-128.
+> let kem = KeyEncapsulationRSA (KDF3 (DigestAlgorithm SHA256)) 16
+> let kdf = HKDF (DigestAlgorithm SHA256)
+> let kri = forKeyEncapRecipient cert kdf AES128_WRAP kem
+
+-- Generate the auth-enveloped structure for this single recipient.  Encrypted
+-- content is kept attached in the structure.
+> Right authEnvData <- authEnvelopData mempty aceKey aceParams [kri] [] [] info
+> let authEnvCI = toAttachedCI authEnvData
+> writeCMSFile "/path/to/authEnveloped.pem" [authEnvCI]
+```
+
+#### Opening the authenticated-enveloped data
+
+```haskell
+> :set -XOverloadedStrings
+> :m Crypto.Store.CMS Data.X509 Crypto.Store.X509 Crypto.Store.PKCS8
+
+-- Read receipient certificate and private key
+> (key : _) <- readKeyFile "/path/to/privkey.pem" -- assuming single key
+> let Right pair = recover "mypassword" key
+> [cert] <- readSignedObject "/path/to/cert.pem" :: IO [SignedCertificate]
+
+-- Then this recipient just has to read the file and recover enveloped
+-- content using the private key and certificate
+> [AuthEnvelopedDataCI authEnvEncapData] <- readCMSFile "/path/to/authEnveloped.pem"
+> authEnvData <- fromAttached authEnvEncapData
+> openAuthEnvelopedData (withRecipientKeyEncap pair cert) authEnvData
+Right (DataCI "Powered by Haskell")
+```
+
 ## Algorithms and security
 
 For compatibility reasons cryptostore implements many outdated algorithms that

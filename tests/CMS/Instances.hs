@@ -364,6 +364,18 @@ instance Arbitrary KeyDerivationFunc where
                           , scryptKeyLength = Nothing
                           }
 
+instance Arbitrary KeyDerivationFn where
+    arbitrary = elements (map HKDF digests ++ map KDF3 digests)
+      where
+        digests = [ DigestAlgorithm SHA256
+                  , DigestAlgorithm SHA384
+                  , DigestAlgorithm SHA512
+                  , DigestAlgorithm SHA3_224
+                  , DigestAlgorithm SHA3_256
+                  , DigestAlgorithm SHA3_384
+                  , DigestAlgorithm SHA3_512
+                  ]
+
 instance Arbitrary KeyTransportParams where
     arbitrary = oneof
         [ pure RSAES
@@ -425,7 +437,7 @@ arbitraryEnvDev cek = sized $ \n -> do
     return (envFns, devFn)
   where
     len     = B.length cek
-    onePair = oneof [ arbitraryKT, arbitraryKA, arbitraryKEK, arbitraryPW ]
+    onePair = oneof [ arbitraryKT, arbitraryKA, arbitraryKEK, arbitraryPW, arbitraryKEM ]
 
     arbitraryKT = do
         (pub, priv) <- arbitraryLargeRSA
@@ -460,6 +472,14 @@ arbitraryEnvDev cek = sized $ \n -> do
         let es = PWRIKEK cea
         return (forPasswordRecipient pwd kdf es, withRecipientPassword pwd)
 
+    arbitraryKEM  = do
+        (cert, pair, params) <- arbitraryKEMParams
+        kdf <- arbitrary
+        kep <- arbitraryAlg
+        let envFn = forKeyEncapRecipient cert kdf kep params
+            devFn = withRecipientKeyEncap pair cert
+        return (envFn, devFn)
+
     arbitraryAlg
         | len == 24      = oneof [ return AES128_WRAP
                                  , return AES192_WRAP
@@ -489,6 +509,13 @@ arbitraryEnvDev cek = sized $ \n -> do
                               , arbitraryCredX448
                               ]
 
+    arbitraryKEMParams = arbitraryCredRSA >>= rsaKemToKEM
+
+    rsaKemToKEM (cert, pair) = do
+        kdf <- arbitrary
+        keyLen <- choose (8,32)
+        return (cert, pair, KeyEncapsulationRSA kdf keyLen)
+
     arbitraryCredNamedEC = do
         (pub, priv) <- arbitraryNamedEC
         let pair = keyPairFromPrivKey (PrivKeyEC priv)
@@ -505,6 +532,12 @@ arbitraryEnvDev cek = sized $ \n -> do
         (pub, priv) <- arbitraryX448
         let pair = keyPairFromPrivKey (PrivKeyX448 priv)
         cert <- arbitrarySignedCertificate (PubKeyX448 pub)
+        return (cert, pair)
+
+    arbitraryCredRSA = do
+        (pub, priv) <- arbitraryRSA
+        let pair = keyPairFromPrivKey (PrivKeyRSA priv)
+        cert <- arbitrarySignedCertificate (PubKeyRSA pub)
         return (cert, pair)
 
     -- key wrapping in PWRIKEK is incompatible with CTR mode or HKDF key

@@ -42,6 +42,10 @@ module Crypto.Store.CMS.Enveloped
     , PasswordRecipientInfo(..)
     , forPasswordRecipient
     , withRecipientPassword
+    -- * Key Encapsulation recipients
+    , KEMRecipientInfo(..)
+    , forKeyEncapRecipient
+    , withRecipientKeyEncap
     ) where
 
 import Control.Applicative
@@ -218,6 +222,16 @@ findRecipientEncryptedKey :: SignedCertificate
                           -> Maybe EncryptedKey
 findRecipientEncryptedKey cert list = rekEncryptedKey <$> find fn list
   where
+    fn rek = matchRecipient cert $ case rekRid rek of
+        KeyAgreeRecipientIASN iasn -> RecipientIASN iasn
+        KeyAgreeRecipientKI   ki   -> RecipientSKI (keyIdentifier ki)
+
+matchRecipient :: SignedCertificate -> RecipientIdentifier -> Bool
+matchRecipient cert rid =
+    case rid of
+        RecipientIASN iasn -> matchIASN iasn
+        RecipientSKI  ski  -> matchSKI ski
+  where
     c = signedObject (getSigned cert)
     matchIASN iasn =
         (iasnIssuer iasn, iasnSerial iasn) == (certIssuerDN c, certSerial c)
@@ -225,9 +239,6 @@ findRecipientEncryptedKey cert list = rekEncryptedKey <$> find fn list
         case extensionGet (certExtensions c) of
             Just (ExtSubjectKeyId idBs) -> idBs == ski
             Nothing                     -> False
-    fn rek = case rekRid rek of
-                 KeyAgreeRecipientIASN iasn -> matchIASN iasn
-                 KeyAgreeRecipientKI   ki   -> matchSKI (keyIdentifier ki)
 
 -- | Additional information in a t'KeyIdentifier'.
 data OtherKeyAttribute = OtherKeyAttribute
@@ -309,6 +320,72 @@ data PasswordRecipientInfo = PasswordRecipientInfo
     }
     deriving (Show,Eq)
 
+-- | Recipient using key encapsulation.
+data KEMRecipientInfo = KEMRecipientInfo
+    { kemRid :: RecipientIdentifier                       -- ^ identifier of recipient
+    , kemEncapsulationParams :: KeyEncapsulationMechanism -- ^ key encapsulation mechanism
+    , kemCipherText :: ByteString                         -- ^ ciphertext for this recipient
+    , kemDerivationFn :: KeyDerivationFn                  -- ^ key derivation used
+    , kemKekLength :: Int                                 -- ^ size of key encryption key
+    , kemUkm :: Maybe UserKeyingMaterial                  -- ^ user keying material
+    , kemEncryptionParams :: KeyEncryptionParams          -- ^ key encryption algorithm
+    , kemEncryptedKey :: EncryptedKey                     -- ^ encrypted content-encryption key
+    }
+    deriving (Show,Eq)
+
+instance ASN1Elem e => ProduceASN1Object e KEMRecipientInfo where
+    asn1s KEMRecipientInfo{..} =
+        asn1Container Sequence (ver . rid . kem . ct . kdf . len . ukm . kep . ek)
+      where
+        ver = gIntVal 0
+        rid = asn1s kemRid
+        kem = algorithmASN1S Sequence kemEncapsulationParams
+        ct  = gOctetString kemCipherText
+        kdf = algorithmASN1S Sequence kemDerivationFn
+        len = gIntVal (toInteger kemKekLength)
+        ukm = optASN1S kemUkm $ asn1Container (Container Context 0) . gOctetString
+        kep = algorithmASN1S Sequence kemEncryptionParams
+        ek  = gOctetString kemEncryptedKey
+
+instance Monoid e => ParseASN1Object e KEMRecipientInfo where
+    parse = onNextContainer Sequence $ do
+        IntVal 0 <- getNext
+        rid <- parse
+        kem <- parseAlgorithm Sequence
+        OctetString ct <- getNext
+        kdf <- parseAlgorithm Sequence
+        IntVal len <- getNext
+        when (len < 1 || len > 65535) $
+            throwParseError ("KEMRecipientInfo: parsed invalid kekLength: " ++ show len)
+        ukm <- onNextContainerMaybe (Container Context 0) $
+                   do { OctetString bs <- getNext; return bs }
+        kep <- parseAlgorithm Sequence
+        OctetString ek <- getNext
+        return KEMRecipientInfo { kemRid = rid
+                                , kemEncapsulationParams = kem
+                                , kemCipherText = ct
+                                , kemDerivationFn = kdf
+                                , kemKekLength = fromInteger len
+                                , kemUkm = ukm
+                                , kemEncryptionParams = kep
+                                , kemEncryptedKey = ek
+                                }
+
+data CMSORIforKEMOtherInfo = CMSORIforKEMOtherInfo
+    { kemoiWrap :: KeyEncryptionParams
+    , kemoiKekLength :: Int
+    , kemoiUkm :: Maybe UserKeyingMaterial
+    }
+    deriving (Show,Eq)
+
+instance ASN1Elem e => ProduceASN1Object e CMSORIforKEMOtherInfo where
+    asn1s CMSORIforKEMOtherInfo{..} =
+        asn1Container Sequence (wrap . len . ukm)
+      where
+        wrap = algorithmASN1S Sequence kemoiWrap
+        len = gIntVal (toInteger kemoiKekLength)
+        ukm = optASN1S kemoiUkm $ asn1Container (Container Context 0) . gOctetString
+
 -- | Information for a recipient of an t'EnvelopedData'.  An element contains
 -- the content-encryption key in encrypted form.
 data RecipientInfo = KTRI KTRecipientInfo
@@ -319,6 +396,8 @@ data RecipientInfo = KTRI KTRecipientInfo
                      -- ^ Recipient using key encryption
                    | PasswordRI PasswordRecipientInfo
                      -- ^ Recipient using password-based protection
+                   | KEMRI KEMRecipientInfo
+                     -- ^ Recipient using key encapsulation
     deriving (Show,Eq)
 
 instance ASN1Elem e => ProduceASN1Object e RecipientInfo where
@@ -358,12 +437,19 @@ instance ASN1Elem e => ProduceASN1Object e RecipientInfo where
         kep = algorithmASN1S Sequence priKeyEncryptionParams
         ek  = gOctetString priEncryptedKey
 
+    asn1s (KEMRI ri) =
+        asn1Container (Container Context 4) (typ . val)
+      where
+        typ = gOID [1,2,840,113549,1,9,16,13,3]
+        val = asn1s ri
+
 instance Monoid e => ParseASN1Object e RecipientInfo where
     parse = do
         c <- onNextContainerMaybe Sequence parseKT
              `orElse` onNextContainerMaybe (Container Context 1) parseKA
              `orElse` onNextContainerMaybe (Container Context 2) parseKEK
              `orElse` onNextContainerMaybe (Container Context 3) parsePassword
+             `orElse` onNextContainerMaybe (Container Context 4) parseOther
         case c of
             Just val -> return val
             Nothing  -> throwParseError "RecipientInfo: unable to parse"
@@ -413,17 +499,23 @@ instance Monoid e => ParseASN1Object e RecipientInfo where
                                          , priEncryptedKey = ek
                                          }
 
+        parseOther = KEMRI <$> do
+            OID [1,2,840,113549,1,9,16,13,3] <- getNext
+            parse
+
 isVersion0 :: RecipientInfo -> Bool
 isVersion0 (KTRI x)       = getKTVersion (ktRid x) == 0
 isVersion0 (KARI _)       = False      -- because version is always 3
 isVersion0 (KEKRI _)      = False      -- because version is always 4
 isVersion0 (PasswordRI _) = True       -- because version is always 0
+isVersion0 (KEMRI _)      = True       -- because version is always 0
 
 isPwriOri :: RecipientInfo -> Bool
 isPwriOri (KTRI _)       = False
 isPwriOri (KARI _)       = False
 isPwriOri (KEKRI _)      = False
 isPwriOri (PasswordRI _) = True
+isPwriOri (KEMRI _)      = True
 
 -- | Enveloped content information.
 data EnvelopedData content = EnvelopedData
@@ -632,3 +724,84 @@ withRecipientPassword pwd (PasswordRI PasswordRecipientInfo{..}) =
     len = fromMaybe (getMaximumKeySize priKeyEncryptionParams)
                     (kdfKeyLength priKeyDerivationFunc)
 withRecipientPassword _ _ = pure (Left RecipientTypeMismatch)
+
+-- | Generate a Key Encapsulation recipient from a certificate and
+-- desired algorithms.  The recipient info will contain the KEM ciphertext.
+--
+-- This function can be used as parameter to 'Crypto.Store.CMS.envelopData'.
+--
+-- To avoid decreasing the security strength, selected algorithms should all be
+-- equal or stronger than the content encryption key.
+forKeyEncapRecipient :: MonadRandom m
+                     => SignedCertificate
+                     -> KeyDerivationFn
+                     -> KeyEncryptionParams
+                     -> KeyEncapsulationMechanism
+                     -> ProducerOfRI m
+forKeyEncapRecipient cert kdf kep params inkey = do
+    ephemeral <- kemEncap params (certPubKey obj)
+    case ephemeral of
+        Right (ct, ss) ->
+            case kdfApply kdf noSalt len prm (ss :: EncryptedKey) of
+                Left err -> pure $ Left err
+                Right kek -> do
+                    ek <- keyEncrypt (kek :: EncryptedKey) kep inkey
+                    pure (KEMRI . build ct <$> ek)
+        Left err -> pure $ Left err
+  where
+    obj = signedObject (getSigned cert)
+    isn = IssuerAndSerialNumber (certIssuerDN obj) (certSerial obj)
+    prm = encodeASN1S (asn1s info)
+
+    len  = getMaximumKeySize kep
+    info = CMSORIforKEMOtherInfo
+        { kemoiWrap = kep
+        , kemoiKekLength = len
+        , kemoiUkm = Nothing
+        }
+
+    build ct ek =
+        KEMRecipientInfo
+            { kemRid = RecipientIASN isn
+            , kemEncapsulationParams = params
+            , kemCipherText = ct
+            , kemDerivationFn = kdf
+            , kemKekLength = len
+            , kemUkm = Nothing
+            , kemEncryptionParams = kep
+            , kemEncryptedKey = ek
+            }
+
+-- | Use a Key Encapsulation recipient, knowing the recipient private key.
+-- The recipient certificate is also used to determine if a recipient info
+-- is applicable.
+--
+-- This function can be used as parameter to
+-- 'Crypto.Store.CMS.openEnvelopedData'.
+withRecipientKeyEncap :: MonadRandom m => KeyPair -> SignedCertificate -> ConsumerOfRI m
+withRecipientKeyEncap pair cert (KEMRI KEMRecipientInfo{..})
+    | not (keyPairMatchesCert pair cert) =
+        pure $ Left PublicPrivateKeyMismatch
+    | not (matchRecipient cert kemRid) =
+        pure $ Left NoRecipientInfoMatched
+    | otherwise =
+        case kemDecap kemEncapsulationParams pair kemCipherText of
+            Left err -> pure $ Left err
+            Right ss | len == kemKekLength -> pure $
+                case kdfApply kemDerivationFn noSalt kemKekLength prm (ss :: EncryptedKey) of
+                    Left err -> Left err
+                    Right kek -> keyDecrypt (kek :: EncryptedKey)
+                        kemEncryptionParams kemEncryptedKey
+            Right _ -> pure $ Left (InvalidInput "Wrong kekLength in KEMRecipientInfo")
+  where
+    len  = getMaximumKeySize kemEncryptionParams
+    prm  = encodeASN1S (asn1s info)
+    info = CMSORIforKEMOtherInfo
+        { kemoiWrap = kemEncryptionParams
+        , kemoiKekLength = kemKekLength
+        , kemoiUkm = kemUkm
+        }
+withRecipientKeyEncap _ _ _        = pure (Left RecipientTypeMismatch)
+
+noSalt :: ByteString
+noSalt = mempty

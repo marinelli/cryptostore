@@ -300,6 +300,25 @@ authEnvelopedDataTests =
                 , "SHA512"
                 ]
 
+rfc9690Tests :: TestTree
+rfc9690Tests = testCase "rfc9690" $ do
+    keys <- readKeyFile path
+    length keys @?= 1
+    certs <- readSignedObject path
+    length certs @?= 1
+    cms <- readCMSFile path
+    length cms @?= 1
+
+    let Right pair = recover (fromString "not-used") key
+        [EnvelopedDataCI envelopedEncapData] = cms
+        [cert] = certs
+        [key] = keys
+
+    envelopedData <- fromAttached envelopedEncapData
+    result <- openEnvelopedData (withRecipientKeyEncap pair cert) envelopedData
+    result @?= Right (DataCI $ fromString "Hello, world!")
+  where path = testFile "rfc9690.pem"
+
 propertyTests :: TestTree
 propertyTests = localOption (QuickCheckMaxSize 5) $ testGroup "properties"
     [ testProperty "marshalling" $ \l ->
@@ -371,5 +390,6 @@ cmsTests =
         , digestedDataTests
         , encryptedDataTests
         , authEnvelopedDataTests
+        , rfc9690Tests
         , propertyTests
         ]

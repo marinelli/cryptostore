@@ -17,6 +17,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 module Crypto.Store.CMS.Algorithms
     ( DigestAlgorithm(..)
@@ -62,6 +63,8 @@ module Crypto.Store.CMS.Algorithms
     , kdfKeyLength
     , kdfKeyLengthModify
     , kdfDerive
+    , KeyDerivationFn(..)
+    , kdfApply
     , KeyEncryptionParams(..)
     , keyEncrypt
     , keyDecrypt
@@ -76,6 +79,9 @@ module Crypto.Store.CMS.Algorithms
     , ecdhPublic
     , ecdhEncrypt
     , ecdhDecrypt
+    , KeyEncapsulationMechanism(..)
+    , kemEncap
+    , kemDecap
     , MaskGenerationFunc(..)
     , mgf
     , SignatureValue
@@ -151,6 +157,7 @@ import qualified Crypto.Store.KeyWrap.TripleDES as TripleDES_KW
 import qualified Crypto.Store.KeyWrap.RC2 as RC2_KW
 import           Crypto.Store.Keys
 import           Crypto.Store.PKCS8.EC
+import qualified Crypto.Store.PubKey.RSA.KEM as RsaKem
 import           Crypto.Store.Util
 
 
@@ -1201,17 +1208,11 @@ authDeriveEncryptionKey = ParamsAuthDeriveHKDF SHA256 . derObjectExact
 
 deriveHKDF :: (Hash.HashAlgorithm a, ProduceASN1Object ASN1P params, ByteArrayAccess ikm)
            => DigestProxy a -> params -> ikm -> Either StoreError B.ScrubbedBytes
-deriveHKDF hashAlg params ikm
-    | len > maxLen = Left (InvalidParameter "HKDF IKM is too long")
-    | otherwise = Right $ HKDF.expand (extract hashAlg ikm) info len
+deriveHKDF hashAlg params ikm =
+    kdfApply (HKDF (DigestAlgorithm hashAlg)) (salt :: B.Bytes) len info ikm
   where
-    maxLen = 255 * digestSizeFromProxy hashAlg
     info = encodeASN1S (asn1s params)
-    len = B.length ikm
-
-    extract :: (Hash.HashAlgorithm a, ByteArrayAccess ikm)
-            => DigestProxy a -> ikm -> HKDF.PRK a
-    extract _ = HKDF.extract (salt :: B.Bytes)
+    len  = B.length ikm
 
     -- "The Cryptographic Message Syntax"
     salt = B.pack [84,104,101,32,67,114,121,112,116,111,103,114,97,112,104,105
@@ -1398,6 +1399,10 @@ instance OIDNameable KeyDerivationAlgorithm where
     fromObjectID oid = unOIDNW <$> fromObjectID oid
 
 -- | Key derivation algorithm and associated parameters.
+--
+-- Implementations are specialized to password inputs.  For other
+-- implementations specialized to inputs having good entropy, like the shared
+-- secrets produced by key-agreement schemes, see 'KeyDerivationFn'.
 data KeyDerivationFunc =
       -- | Key derivation with PBKDF2
       PBKDF2 { pbkdf2Salt           :: Salt       -- ^ Salt value
@@ -1491,6 +1496,81 @@ kdfDerive Scrypt{..} len pwd = Scrypt.generate params pwd scryptSalt
 -- effective, the length should be at least 8 bytes.
 generateSalt :: MonadRandom m => Int -> m Salt
 generateSalt = getRandomBytes
+
+data TypeKeyDerivationFn
+    = TypeHKDF DigestAlgorithm
+    | TypeKDF3
+    deriving (Show,Eq)
+
+instance Enumerable TypeKeyDerivationFn where
+    values = [ TypeHKDF (DigestAlgorithm SHA256)
+             , TypeHKDF (DigestAlgorithm SHA384)
+             , TypeHKDF (DigestAlgorithm SHA512)
+             , TypeHKDF (DigestAlgorithm SHA3_224)
+             , TypeHKDF (DigestAlgorithm SHA3_256)
+             , TypeHKDF (DigestAlgorithm SHA3_384)
+             , TypeHKDF (DigestAlgorithm SHA3_512)
+             , TypeKDF3
+             ]
+
+instance OIDable TypeKeyDerivationFn where
+    getObjectID (TypeHKDF (DigestAlgorithm SHA256))   = [1,2,840,113549,1,9,16,3,28]
+    getObjectID (TypeHKDF (DigestAlgorithm SHA384))   = [1,2,840,113549,1,9,16,3,29]
+    getObjectID (TypeHKDF (DigestAlgorithm SHA512))   = [1,2,840,113549,1,9,16,3,30]
+    getObjectID (TypeHKDF (DigestAlgorithm SHA3_224)) = [1,2,840,113549,1,9,16,3,32]
+    getObjectID (TypeHKDF (DigestAlgorithm SHA3_256)) = [1,2,840,113549,1,9,16,3,33]
+    getObjectID (TypeHKDF (DigestAlgorithm SHA3_384)) = [1,2,840,113549,1,9,16,3,34]
+    getObjectID (TypeHKDF (DigestAlgorithm SHA3_512)) = [1,2,840,113549,1,9,16,3,35]
+    getObjectID (TypeHKDF hashAlg) = error ("Unsupported HKDF hash: " ++ show hashAlg)
+    getObjectID TypeKDF3                              = [1,3,133,16,840,9,44,1,2]
+
+instance OIDNameable TypeKeyDerivationFn where
+    fromObjectID oid = unOIDNW <$> fromObjectID oid
+
+-- | Key derivation algorithm and associated parameters.
+--
+-- Implementations are specialized to inputs having good entropy, like the
+-- shared secrets produced by key-agreement schemes.  For other implementations
+-- specialized to password inputs, see 'KeyDerivationFunc'.
+data KeyDerivationFn
+      -- | Key derivation with HKDF
+    = HKDF DigestAlgorithm
+      -- | Key derivation with KDF3
+    | KDF3 DigestAlgorithm
+    deriving (Show,Eq)
+
+instance AlgorithmId KeyDerivationFn where
+    type AlgorithmType KeyDerivationFn = TypeKeyDerivationFn
+
+    algorithmName _ = "key derivation algorithm"
+    algorithmType (HKDF alg) = TypeHKDF alg
+    algorithmType (KDF3 _) = TypeKDF3
+
+    parameterASN1S (HKDF _) = id
+    parameterASN1S (KDF3 alg) = algorithmASN1S Sequence alg
+
+    parseParameter (TypeHKDF alg) = return (HKDF alg)
+    parseParameter TypeKDF3 = KDF3 <$> parseAlgorithm Sequence
+
+kdfApply :: (ByteArrayAccess salt, ByteArrayAccess ikm, ByteArray out)
+         => KeyDerivationFn -> salt -> Int -> ByteString -> ikm -> Either StoreError out
+kdfApply (HKDF (DigestAlgorithm p)) salt len info ikm
+    | len > maxLen = Left (InvalidParameter "HKDF OKM is too long")
+    | otherwise = Right $ HKDF.expand (extract p ikm) info len
+  where
+    maxLen = 255 * digestSizeFromProxy p
+
+    extract :: (Hash.HashAlgorithm a, ByteArrayAccess ikm)
+            => DigestProxy a -> ikm -> HKDF.PRK a
+    extract _ = HKDF.extract salt
+
+kdfApply (KDF3 dig@(DigestAlgorithm p)) salt len info ikm
+    | not (securityAcceptable dig) =
+        Left (InvalidParameter "KDF3 digest too weak")
+    | B.null salt =
+        let RsaKem.KDF kdf = RsaKem.kdf3 (hashFromProxy p) len
+         in Right $ kdf info ikm
+    | otherwise = Left (InvalidInput "KDF3 salt must be empty")
 
 
 -- Key encryption
@@ -2088,6 +2168,85 @@ parseM = do
         14 -> return CCM_M14
         16 -> return CCM_M16
         i -> throwParseError ("Parsed invalid CCM parameter M: " ++ show i)
+
+
+-- Key encapsulation
+
+data KeyEncapsulationType
+    = TypeKeyEncapsulationRSA
+    deriving (Show,Eq)
+
+instance Enumerable KeyEncapsulationType where
+    values = [TypeKeyEncapsulationRSA]
+
+instance OIDable KeyEncapsulationType where
+    getObjectID TypeKeyEncapsulationRSA = [1,0,18033,2,2,4]
+
+instance OIDNameable KeyEncapsulationType where
+    fromObjectID oid = unOIDNW <$> fromObjectID oid
+
+-- | Key encapsulation mechanism (KEM) with associated parameters.
+data KeyEncapsulationMechanism
+    = KeyEncapsulationRSA KeyDerivationFn Int
+      -- ^ Key encapsulation with RSA-KEM
+    deriving (Show,Eq)
+
+instance AlgorithmId KeyEncapsulationMechanism where
+    type AlgorithmType KeyEncapsulationMechanism = KeyEncapsulationType
+    algorithmName _ = "key encapsulation mechanism"
+
+    algorithmType (KeyEncapsulationRSA _ _) = TypeKeyEncapsulationRSA
+
+    parameterASN1S (KeyEncapsulationRSA kdf len)
+        | (kdf, len) == defaultRsaKemParams = id
+        | otherwise = asn1Container Sequence $
+            algorithmASN1S Sequence kdf . gIntVal (toInteger len)
+
+    parseParameter TypeKeyEncapsulationRSA =
+        fmap manageDef $ onNextContainerMaybe Sequence $ do
+            kdf <- parseAlgorithm Sequence
+            IntVal len <- getNext
+            when (len < 1) $
+                throwParseError "Illegal keyLength in RsaKemParameters"
+            return $ KeyEncapsulationRSA kdf (fromInteger len)
+      where
+        manageDef = fromMaybe (KeyEncapsulationRSA kdfDef lenDef)
+        (kdfDef, lenDef) = defaultRsaKemParams
+
+defaultRsaKemParams :: (KeyDerivationFn, Int)
+defaultRsaKemParams = (KDF3 $ DigestAlgorithm SHA256, 16)
+
+newtype RsaKemLen = RsaKemLen Int
+
+instance HasStrength RsaKemLen where
+    getSecurityBits (RsaKemLen len) = 8 * len
+
+kdfRsaKem :: (ByteArrayAccess bIn, ByteArray bOut)
+          => KeyDerivationFn -> Int -> RsaKem.KDF bIn (Either StoreError bOut)
+kdfRsaKem kdf len
+    | securityAcceptable (RsaKemLen len) = RsaKem.KDF $ kdfApply kdf noSalt len
+    | otherwise = RsaKem.KDF $ \_ _ ->
+        Left $ InvalidParameter "RSA-KEM shared-secret length too short"
+
+kemEncap :: (MonadRandom m, ByteArray ct, ByteArray ss)
+         => KeyEncapsulationMechanism -> X509.PubKey -> m (Either StoreError (ct, ss))
+kemEncap (KeyEncapsulationRSA kdf len) (X509.PubKeyRSA pub) = do
+    (ss, ct) <- RsaKem.encapsulate kdFn pub
+    return $ (ct, ) <$> ss
+  where kdFn = kdfRsaKem kdf len
+kemEncap _ _ = return (Left UnexpectedPublicKeyType)
+
+kemDecap :: (ByteArrayAccess ct, ByteArray ss)
+         => KeyEncapsulationMechanism -> KeyPair -> ct -> Either StoreError ss
+kemDecap (KeyEncapsulationRSA kdf len) (KeyPairRSA priv _) ct =
+    case RsaKem.decapsulate kdFn priv (B.convert ct :: B.Bytes) of
+        Just ss -> ss
+        Nothing -> Left $ InvalidParameter "Invalid RSA-KEM ciphertext"
+  where kdFn = kdfRsaKem kdf len
+kemDecap _ _ _ = Left UnexpectedPrivateKeyType
+
+noSalt :: ByteString
+noSalt = mempty
 
 
 -- Mask generation functions
